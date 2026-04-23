@@ -18,7 +18,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
       await login(u, p)
       onDone()
     } catch (ex: unknown) {
-      setErr(ex instanceof Error ? ex.message : 'Login error')
+      setErr(ex instanceof Error ? ex.message : t('msg.errorGeneric'))
     } finally {
       setBusy(false)
     }

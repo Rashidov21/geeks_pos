@@ -12,38 +12,26 @@ def round_som(value) -> Decimal:
 
 def transliterate_uz(text: str) -> str:
     """CP866 fallback transliteration for Uzbek apostrophe letters."""
-    mapping = {
-        "o\u2018": "o'",
-        "o\u2019": "o'",
-        "o\u02bb": "o'",
-        "o\u02bc": "o'",
-        "o\u02bb": "o'",
-        "o\u201b": "o'",
-        "o\u02bc": "o'",
-        "o\u02bb": "o'",
-        "o\u02bb": "o'",
-        "o\u2018": "o'",
-        "o\u2019": "o'",
-        "o\u02bb": "o'",
-        "o\u02bc": "o'",
-        "o\u02bb": "o'",
-        "o\u02bc": "o'",
-        "o\u02bb": "o'",
-        "g\u2018": "g'",
-        "g\u2019": "g'",
-        "g\u02bb": "g'",
-        "g\u02bc": "g'",
-        "O\u2018": "O'",
-        "O\u2019": "O'",
-        "O\u02bb": "O'",
-        "O\u02bc": "O'",
-        "G\u2018": "G'",
-        "G\u2019": "G'",
-        "G\u02bb": "G'",
-        "G\u02bc": "G'",
-    }
     out = text or ""
-    for src, dst in mapping.items():
+    apostrophes = ("\u2018", "\u2019", "\u02bb", "\u02bc", "\u201b", "`")
+    for ch in apostrophes:
+        out = out.replace(f"o{ch}", "o'")
+        out = out.replace(f"g{ch}", "g'")
+        out = out.replace(f"O{ch}", "O'")
+        out = out.replace(f"G{ch}", "G'")
+
+    # Optional Uzbek Cyrillic fallback for old printer encodings.
+    cyr_map = {
+        "ў": "o'",
+        "Ў": "O'",
+        "ғ": "g'",
+        "Ғ": "G'",
+        "ш": "sh",
+        "Ш": "Sh",
+        "ч": "ch",
+        "Ч": "Ch",
+    }
+    for src, dst in cyr_map.items():
         out = out.replace(src, dst)
     return out
 

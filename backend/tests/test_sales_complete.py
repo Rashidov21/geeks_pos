@@ -1,8 +1,10 @@
 import uuid
 from decimal import Decimal
+from threading import Thread
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import close_old_connections
 
 from catalog.models import Category, Color, Product, ProductVariant, Size
 from core.exceptions import InsufficientStock, InvalidPaymentSplit
@@ -157,3 +159,64 @@ def test_payment_mismatch_raises(cashier, variant):
 @pytest.mark.django_db
 def test_barcode_format_prd_prefix(variant):
     assert variant.barcode.startswith("PRD-")
+
+
+@pytest.mark.django_db
+def test_expected_grand_total_mismatch_rejected(cashier, variant):
+    with pytest.raises(InvalidPaymentSplit):
+        complete_sale(
+            idempotency_key=str(uuid.uuid4()),
+            cashier=cashier,
+            lines=[{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+            payments=[{"method": "CASH", "amount": "150000.00"}],
+            customer=None,
+            expected_grand_total=Decimal("149999.00"),
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_same_idempotency_key_single_sale(cashier, variant):
+    key = str(uuid.uuid4())
+    sale_ids = []
+    errors = []
+
+    def worker():
+        close_old_connections()
+        try:
+            sale = complete_sale(
+                idempotency_key=key,
+                cashier=cashier,
+                lines=[{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+                payments=[{"method": "CASH", "amount": "150000.00"}],
+                customer=None,
+            )
+            sale_ids.append(str(sale.id))
+        except Exception as ex:  # pragma: no cover - assertion below validates empty
+            errors.append(str(ex))
+        finally:
+            close_old_connections()
+
+    t1 = Thread(target=worker)
+    t2 = Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # SQLite can transiently lock one writer thread; idempotency still guarantees
+    # a single completed sale when retried with the same key.
+    assert len(sale_ids) >= 1
+    for err in errors:
+        assert "database table is locked" in err
+
+    s_retry = complete_sale(
+        idempotency_key=key,
+        cashier=cashier,
+        lines=[{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+        payments=[{"method": "CASH", "amount": "150000.00"}],
+        customer=None,
+    )
+    assert str(s_retry.id) in sale_ids or len(sale_ids) == 1
+    assert Sale.objects.filter(idempotency_key=key).count() == 1
+    variant.refresh_from_db()
+    assert variant.stock_qty == 4

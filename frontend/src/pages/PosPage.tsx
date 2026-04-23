@@ -256,7 +256,15 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
           }
         : undefined
 
-      const res = await completeSale({ lines, payments, customer }, idem)
+      const res = await completeSale(
+        {
+          lines,
+          payments,
+          customer,
+          expected_grand_total: grandDec.toString(),
+        },
+        idem,
+      )
       setLastSaleId(res.sale_id)
       clearCart()
       setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
@@ -267,7 +275,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     } catch (e: unknown) {
       beepError()
       const code = (e as Error & { code?: string }).code
-      const msg = e instanceof Error ? e.message : 'Error'
+      const msg = e instanceof Error ? e.message : t('msg.errorGeneric')
       if (code === 'INSUFFICIENT_STOCK') {
         setBanner(`${t('msg.stock')} ${msg}`)
       } else {
@@ -293,7 +301,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       e.preventDefault()
       if (cart.length > 0) {
         if (e.shiftKey) clearCart()
-        else if (confirm('Clear cart?')) clearCart()
+        else if (confirm(t('msg.clearCartConfirm'))) clearCart()
       }
       setBuffer('')
       refocusScan()
@@ -498,9 +506,9 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                     value={r.method}
                     onChange={(e) => updatePaymentRow(r.id, { method: e.target.value as PayMode })}
                   >
-                    <option value="CASH">CASH</option>
-                    <option value="CARD">CARD</option>
-                    <option value="DEBT">DEBT</option>
+                    <option value="CASH">{t('pay.method.cash')}</option>
+                    <option value="CARD">{t('pay.method.card')}</option>
+                    <option value="DEBT">{t('pay.method.debt')}</option>
                   </select>
                   <input
                     className="px-2 py-2 rounded bg-slate-900 border border-slate-600 text-sm"
@@ -512,7 +520,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                     className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-xs"
                     onClick={() => removePaymentRow(r.id)}
                     disabled={paymentRows.length === 1}
-                    title={`Row ${idx + 1}`}
+                    title={`${t('pay.addRow')} #${idx + 1}`}
                   >
                     x
                   </button>

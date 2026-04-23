@@ -34,6 +34,7 @@ class CompleteSaleView(APIView):
                 lines=[dict(l) for l in data["lines"]],
                 payments=[dict(p) for p in data["payments"]],
                 customer=data.get("customer"),
+                expected_grand_total=data.get("expected_grand_total"),
                 note=data.get("note") or "",
             )
         except InsufficientStock as e:

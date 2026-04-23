@@ -26,6 +26,9 @@
   "pay.mode.cash": "Наличные",
   "pay.mode.card": "Карта",
   "pay.mode.debt": "Долг",
+  "pay.method.cash": "Наличные",
+  "pay.method.card": "Карта",
+  "pay.method.debt": "Долг",
   "summary.total": "Итого",
   "summary.complete": "Завершить продажу (Enter)",
   "summary.saving": "Сохранение...",
@@ -37,6 +40,8 @@
   "msg.debtRequired": "Для долга нужны имя и телефон клиента.",
   "msg.paymentMismatch": "Сумма платежей не равна итогу.",
   "msg.stock": "Недостаточно остатков.",
+  "msg.clearCartConfirm": "Очистить корзину?",
+  "msg.errorGeneric": "Ошибка",
   "msg.close": "Закрыть",
   "msg.sale": "Продажа"
 }

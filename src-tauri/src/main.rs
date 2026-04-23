@@ -11,13 +11,12 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use tauri::Manager;
+#[cfg(windows)]
+use raw_printer::write_to_device;
 
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::HANDLE;
-#[cfg(windows)]
 use windows_sys::Win32::Graphics::Printing::{
-    ClosePrinter, EndDocPrinter, EndPagePrinter, GetDefaultPrinterW, OpenPrinterW,
-    StartDocPrinterW, StartPagePrinter, WritePrinter, DOC_INFO_1W,
+    GetDefaultPrinterW,
 };
 
 struct BackendState {
@@ -53,18 +52,58 @@ fn backend_script_path() -> PathBuf {
     PathBuf::from("../backend/run_waitress.py")
 }
 
+fn backend_command(script: &PathBuf) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("py");
+        cmd.arg("-3")
+            .arg(script)
+            .arg("--host")
+            .arg("127.0.0.1")
+            .arg("--port")
+            .arg("8000");
+        return cmd;
+    }
+
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("python3");
+        cmd.arg(script)
+            .arg("--host")
+            .arg("127.0.0.1")
+            .arg("--port")
+            .arg("8000");
+        return cmd;
+    }
+}
+
 fn ensure_backend_started(state: &BackendState) -> Result<(), String> {
     if health_ok() {
         return Ok(());
     }
 
+    {
+        let mut lock = state
+            .child
+            .lock()
+            .map_err(|_| "Backend mutex poisoned".to_string())?;
+        if let Some(child) = lock.as_mut() {
+            match child.try_wait() {
+                Ok(None) => return Ok(()),
+                Ok(Some(_)) => {
+                    *lock = None;
+                }
+                Err(e) => {
+                    eprintln!("Backend state check warning: {e}");
+                    *lock = None;
+                }
+            }
+        }
+    }
+
     let script = backend_script_path();
-    let mut cmd = Command::new("python");
-    cmd.arg(script)
-        .arg("--host")
-        .arg("127.0.0.1")
-        .arg("--port")
-        .arg("8000")
+    let mut cmd = backend_command(&script);
+    cmd
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -85,13 +124,16 @@ fn ensure_backend_started(state: &BackendState) -> Result<(), String> {
         }
         thread::sleep(Duration::from_millis(300));
     }
+    stop_backend(state);
     Err("Backend healthcheck failed after start".to_string())
 }
 
 fn stop_backend(state: &BackendState) {
     if let Ok(mut lock) = state.child.lock() {
         if let Some(child) = lock.as_mut() {
-            let _ = child.kill();
+            if let Ok(None) = child.try_wait() {
+                let _ = child.kill();
+            }
         }
         *lock = None;
     }
@@ -124,61 +166,10 @@ fn default_printer_name() -> Result<String, String> {
 #[cfg(windows)]
 fn raw_print_default(bytes: &[u8]) -> Result<(), String> {
     let printer_name = default_printer_name()?;
-    let printer_w = to_wide_null(&printer_name);
-    let mut h_printer: HANDLE = 0;
-
-    let opened = unsafe {
-        OpenPrinterW(
-            printer_w.as_ptr() as *mut u16,
-            &mut h_printer as *mut HANDLE,
-            std::ptr::null_mut(),
-        )
-    };
-    if opened == 0 || h_printer == 0 {
-        return Err("OpenPrinterW failed".to_string());
-    }
-
-    let doc_name = to_wide_null("Geeks POS Receipt");
-    let data_type = to_wide_null("RAW");
-    let mut doc_info = DOC_INFO_1W {
-        pDocName: doc_name.as_ptr() as *mut u16,
-        pOutputFile: std::ptr::null_mut(),
-        pDatatype: data_type.as_ptr() as *mut u16,
-    };
-
-    let job_id = unsafe { StartDocPrinterW(h_printer, 1, &mut doc_info as *mut _ as *mut u8) };
-    if job_id == 0 {
-        unsafe { ClosePrinter(h_printer) };
-        return Err("StartDocPrinterW failed".to_string());
-    }
-
-    let page_ok = unsafe { StartPagePrinter(h_printer) };
-    if page_ok == 0 {
-        unsafe {
-            EndDocPrinter(h_printer);
-            ClosePrinter(h_printer);
-        }
-        return Err("StartPagePrinter failed".to_string());
-    }
-
-    let mut written: u32 = 0;
-    let write_ok = unsafe {
-        WritePrinter(
-            h_printer,
-            bytes.as_ptr() as *mut _,
-            bytes.len() as u32,
-            &mut written as *mut u32,
-        )
-    };
-
-    unsafe {
-        EndPagePrinter(h_printer);
-        EndDocPrinter(h_printer);
-        ClosePrinter(h_printer);
-    }
-
-    if write_ok == 0 || written == 0 {
-        return Err("WritePrinter failed".to_string());
+    let written = write_to_device(&printer_name, bytes, Some("Geeks POS Receipt"))
+        .map_err(|e| format!("raw_printer error: {e}"))?;
+    if written == 0 {
+        return Err("raw_printer wrote zero bytes".to_string());
     }
 
     Ok(())

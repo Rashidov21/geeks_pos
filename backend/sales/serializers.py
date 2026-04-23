@@ -29,5 +29,8 @@ class CustomerInSerializer(serializers.Serializer):
 class CompleteSaleSerializer(serializers.Serializer):
     lines = SaleLineInSerializer(many=True)
     payments = PaymentInSerializer(many=True)
+    expected_grand_total = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False
+    )
     customer = CustomerInSerializer(required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True, default="")

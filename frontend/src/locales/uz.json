@@ -26,6 +26,9 @@
   "pay.mode.cash": "Naqd",
   "pay.mode.card": "Karta",
   "pay.mode.debt": "Nasiya",
+  "pay.method.cash": "Naqd",
+  "pay.method.card": "Karta",
+  "pay.method.debt": "Nasiya",
   "summary.total": "Jami",
   "summary.complete": "Savdoni yakunlash (Enter)",
   "summary.saving": "Saqlanmoqda...",
@@ -37,6 +40,8 @@
   "msg.debtRequired": "Nasiya uchun mijoz ism va telefon majburiy.",
   "msg.paymentMismatch": "Tolovlar yigindisi jami bilan teng emas.",
   "msg.stock": "Zaxira yetarli emas.",
+  "msg.clearCartConfirm": "Savat tozalansinmi?",
+  "msg.errorGeneric": "Xatolik",
   "msg.close": "Yopish",
   "msg.sale": "Savdo"
 }

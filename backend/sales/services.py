@@ -31,6 +31,7 @@ def complete_sale(
     lines: list[dict[str, Any]],
     payments: list[dict[str, Any]],
     customer: dict[str, Any] | None,
+    expected_grand_total: Decimal | None = None,
     note: str = "",
 ) -> Sale:
     if not idempotency_key or len(idempotency_key) > 64:
@@ -54,6 +55,7 @@ def complete_sale(
                 lines=lines,
                 payments=payments,
                 customer=customer,
+                expected_grand_total=expected_grand_total,
                 note=note,
             )
             return sale
@@ -68,6 +70,7 @@ def _complete_sale_inner(
     lines: list[dict[str, Any]],
     payments: list[dict[str, Any]],
     customer: dict[str, Any] | None,
+    expected_grand_total: Decimal | None,
     note: str,
 ) -> Sale:
     parsed_lines: list[dict[str, Any]] = []
@@ -112,6 +115,8 @@ def _complete_sale_inner(
     grand_total = _q(subtotal - discount_total)
     if grand_total < 0:
         raise InvalidPaymentSplit("Grand total cannot be negative")
+    if expected_grand_total is not None and _q(expected_grand_total) != grand_total:
+        raise InvalidPaymentSplit("Frontend total mismatch with authoritative backend total")
 
     pay_sum = Decimal("0")
     debt_amount = Decimal("0")
