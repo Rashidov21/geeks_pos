@@ -1,0 +1,159 @@
+import uuid
+from decimal import Decimal
+
+import pytest
+from django.contrib.auth.models import User
+
+from catalog.models import Category, Color, Product, ProductVariant, Size
+from core.exceptions import InsufficientStock, InvalidPaymentSplit
+from sales.models import Payment, Sale, SaleLine
+from sales.services import complete_sale
+
+
+@pytest.fixture
+def cashier(db):
+    u = User.objects.create_user(username="cashier", password="pass12345")
+    u.profile.role = "CASHIER"
+    u.profile.save()
+    return u
+
+
+@pytest.fixture
+def variant(db):
+    cat = Category.objects.create(name_uz="Kiyim", name_ru="Одежда")
+    sz = Size.objects.create(
+        value="40", label_uz="40", label_ru="40", sort_order=1
+    )
+    col = Color.objects.create(
+        value="BLACK", label_uz="Qora", label_ru="Черный", sort_order=1
+    )
+    prod = Product.objects.create(
+        category=cat, name_uz="Krossovka", name_ru="Кроссовки"
+    )
+    v = ProductVariant(
+        product=prod,
+        size=sz,
+        color=col,
+        purchase_price=Decimal("100000.00"),
+        list_price=Decimal("150000.00"),
+        stock_qty=0,
+    )
+    v.save()
+    from inventory.models import InventoryMovement
+    from inventory.services import apply_movement
+
+    apply_movement(
+        variant=v,
+        qty_delta=5,
+        movement_type=InventoryMovement.Type.IN,
+        user=None,
+        note="seed",
+    )
+    v.refresh_from_db()
+    return v
+
+
+@pytest.mark.django_db
+def test_complete_sale_decrements_stock_once(cashier, variant):
+    key = str(uuid.uuid4())
+    sale = complete_sale(
+        idempotency_key=key,
+        cashier=cashier,
+        lines=[
+            {
+                "variant_id": str(variant.id),
+                "qty": 2,
+                "line_discount": "0",
+            }
+        ],
+        payments=[
+            {"method": "CASH", "amount": "300000.00"},
+        ],
+        customer=None,
+    )
+    variant.refresh_from_db()
+    assert variant.stock_qty == 3
+    assert sale.grand_total == Decimal("300000.00")
+    assert SaleLine.objects.filter(sale=sale).count() == 1
+
+
+@pytest.mark.django_db
+def test_insufficient_stock_rolls_back(cashier, variant):
+    key = str(uuid.uuid4())
+    line_total = variant.list_price * Decimal("99")
+    with pytest.raises(InsufficientStock):
+        complete_sale(
+            idempotency_key=key,
+            cashier=cashier,
+            lines=[
+                {"variant_id": str(variant.id), "qty": 99, "line_discount": "0"}
+            ],
+            payments=[{"method": "CASH", "amount": str(line_total)}],
+            customer=None,
+        )
+    variant.refresh_from_db()
+    assert variant.stock_qty == 5
+    assert not Sale.objects.filter(idempotency_key=key).exists()
+
+
+@pytest.mark.django_db
+def test_idempotency_same_key_no_double_stock(cashier, variant):
+    key = str(uuid.uuid4())
+    payload = dict(
+        idempotency_key=key,
+        cashier=cashier,
+        lines=[
+            {"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}
+        ],
+        payments=[{"method": "CASH", "amount": "150000.00"}],
+        customer=None,
+    )
+    s1 = complete_sale(**payload)
+    s2 = complete_sale(**payload)
+    assert s1.id == s2.id
+    variant.refresh_from_db()
+    assert variant.stock_qty == 4
+
+
+@pytest.mark.django_db
+def test_idempotency_duplicate_key_concurrent_safe_second_call(cashier, variant):
+    key = str(uuid.uuid4())
+    s1 = complete_sale(
+        idempotency_key=key,
+        cashier=cashier,
+        lines=[
+            {"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}
+        ],
+        payments=[{"method": "CASH", "amount": "150000.00"}],
+        customer=None,
+    )
+    s2 = complete_sale(
+        idempotency_key=key,
+        cashier=cashier,
+        lines=[
+            {"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}
+        ],
+        payments=[{"method": "CASH", "amount": "150000.00"}],
+        customer=None,
+    )
+    assert s1.id == s2.id
+    assert Payment.objects.filter(sale=s1).count() == 1
+
+
+@pytest.mark.django_db
+def test_payment_mismatch_raises(cashier, variant):
+    with pytest.raises(InvalidPaymentSplit):
+        complete_sale(
+            idempotency_key=str(uuid.uuid4()),
+            cashier=cashier,
+            lines=[
+                {"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}
+            ],
+            payments=[{"method": "CASH", "amount": "1.00"}],
+            customer=None,
+        )
+
+
+@pytest.mark.django_db
+def test_barcode_format_prd_prefix(variant):
+    assert variant.barcode.startswith("PRD-")

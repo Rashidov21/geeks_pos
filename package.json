@@ -1,0 +1,17 @@
+{
+  "name": "geeks_pos",
+  "private": true,
+  "scripts": {
+    "dev:api": "python backend/run_waitress.py",
+    "dev:web": "npm run dev --prefix frontend",
+    "dev": "concurrently -k \"npm run dev:api\" \"npm run dev:web\"",
+    "build": "npm run build --prefix frontend",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.5.14",
+    "concurrently": "^9.1.0"
+  }
+}
