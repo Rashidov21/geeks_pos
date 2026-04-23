@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import Decimal from 'decimal.js'
 import {
   completeSale,
   fetchReceiptEscpos,
@@ -7,6 +9,23 @@ import {
   logout,
 } from '../api'
 import { usePosStore, type PayMode } from '../store/posStore'
+
+Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP })
+
+type PaymentRow = {
+  id: string
+  method: PayMode
+  amount: string
+}
+
+function roundSom(v: Decimal.Value): Decimal {
+  return new Decimal(v).toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+}
+
+function parseSom(v: string): Decimal {
+  const normalized = (v || '0').replace(',', '.').trim() || '0'
+  return roundSom(new Decimal(normalized))
+}
 
 function beepError() {
   try {
@@ -23,24 +42,24 @@ function beepError() {
       ctx.close()
     }, 120)
   } catch {
-    /* ignore */
+    // ignore
   }
 }
 
 function moneyFromLine(list: string, qty: number): string {
-  const n = (parseFloat(list) * qty).toFixed(2)
-  return n
+  return roundSom(new Decimal(list).mul(qty)).toString()
 }
 
 function sumGrand(cart: ReturnType<typeof usePosStore.getState>['cart']): string {
-  let t = 0
+  let t = new Decimal(0)
   for (const l of cart) {
-    t += parseFloat(l.listPrice) * l.qty
+    t = t.plus(new Decimal(l.listPrice).mul(l.qty))
   }
-  return t.toFixed(2)
+  return roundSom(t).toString()
 }
 
 export function PosPage({ onLogout }: { onLogout: () => void }) {
+  const { t, i18n } = useTranslation()
   const scanRef = useRef<HTMLInputElement>(null)
   const [buffer, setBuffer] = useState('')
   const [toast, setToast] = useState<{ kind: 'err' | 'ok'; msg: string } | null>(null)
@@ -60,6 +79,14 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
   const setPayMode = usePosStore((s) => s.setPayMode)
   const setCustomer = usePosStore((s) => s.setCustomer)
 
+  const grand = sumGrand(cart)
+  const grandDec = useMemo(() => parseSom(grand), [grand])
+
+  const [paymentRows, setPaymentRows] = useState<PaymentRow[]>([
+    { id: crypto.randomUUID(), method: 'CASH', amount: '0' },
+  ])
+  const [activePayId, setActivePayId] = useState<string | null>(null)
+
   const refocusScan = useCallback(() => {
     requestAnimationFrame(() => scanRef.current?.focus())
   }, [])
@@ -67,6 +94,59 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     refocusScan()
   }, [refocusScan, cart, toast, banner, completing, printBanner])
+
+  useEffect(() => {
+    if (paymentRows.length === 1) {
+      setPaymentRows((prev) => [{ ...prev[0], amount: grand }])
+    }
+    if (paymentRows.length > 0 && !activePayId) {
+      setActivePayId(paymentRows[0].id)
+    }
+  }, [grand, paymentRows.length, activePayId])
+
+  function paymentTotal(): Decimal {
+    return paymentRows.reduce((acc, r) => acc.plus(parseSom(r.amount)), new Decimal(0))
+  }
+
+  function setActiveMethod(method: PayMode) {
+    setPayMode(method)
+    setPaymentRows((prev) => {
+      if (prev.length === 0) {
+        const id = crypto.randomUUID()
+        setActivePayId(id)
+        return [{ id, method, amount: grand }]
+      }
+      if (!activePayId) {
+        return prev.map((p, idx) => (idx === 0 ? { ...p, method } : p))
+      }
+      return prev.map((p) => (p.id === activePayId ? { ...p, method } : p))
+    })
+  }
+
+  function addPaymentRow() {
+    const id = crypto.randomUUID()
+    setPaymentRows((prev) => [...prev, { id, method: payMode, amount: '0' }])
+    setActivePayId(id)
+  }
+
+  function removePaymentRow(id: string) {
+    setPaymentRows((prev) => {
+      const next = prev.filter((r) => r.id !== id)
+      if (next.length === 0) {
+        const single = [{ id: crypto.randomUUID(), method: 'CASH' as PayMode, amount: grand }]
+        setActivePayId(single[0].id)
+        return single
+      }
+      if (!next.some((r) => r.id === activePayId)) {
+        setActivePayId(next[0].id)
+      }
+      return next
+    })
+  }
+
+  function updatePaymentRow(id: string, patch: Partial<PaymentRow>) {
+    setPaymentRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }
 
   function showToast(kind: 'err' | 'ok', msg: string) {
     setToast({ kind, msg })
@@ -96,9 +176,9 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
         } catch {
           try {
             await navigator.clipboard.writeText(plain)
-            setPrintBanner('Chek buferga nusxalandi (printer yo‘q / Tauri).')
+            setPrintBanner('Chek clipboardga nusxalandi (printer yoq yoki Tauri yoq).')
           } catch {
-            setPrintBanner('Chek chiqarilmadi. Qayta urinib ko‘ring.')
+            setPrintBanner('Chek chiqarilmadi. Qayta urinib koring.')
           }
         }
       }
@@ -130,7 +210,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       const msg =
         e instanceof Error && (e as Error & { code?: string }).code === 'BARCODE_NOT_FOUND'
           ? `Barcode topilmadi: ${c}`
-          : 'Barcode xato / API'
+          : 'Barcode xato yoki API ishlamayapti'
       showToast('err', msg)
       setBuffer('')
       refocusScan()
@@ -139,33 +219,48 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
   async function doComplete() {
     if (completing || cart.length === 0) return
-    const grand = sumGrand(cart)
-    if (payMode === 'DEBT' && (!customerPhone.trim() || !customerName.trim())) {
+
+    const pays = paymentRows.map((r) => ({ method: r.method, amount: parseSom(r.amount) }))
+    const payTotal = pays.reduce((acc, p) => acc.plus(p.amount), new Decimal(0))
+
+    if (!payTotal.eq(grandDec)) {
       beepError()
-      setBanner('Nasiya: mijoz ism va telefon majburiy.')
+      setBanner(`Tolovlar yigindisi (${payTotal.toString()}) jami (${grandDec.toString()})ga teng emas.`)
       refocusScan()
       return
     }
+
+    const hasDebt = pays.some((p) => p.method === 'DEBT' && p.amount.gt(0))
+    if (hasDebt && (!customerPhone.trim() || !customerName.trim())) {
+      beepError()
+      setBanner('Nasiya uchun mijoz ism va telefon majburiy.')
+      refocusScan()
+      return
+    }
+
     setBanner(null)
     setCompleting(true)
     const idem = crypto.randomUUID()
+
     try {
       const lines = cart.map((l) => ({
         variant_id: l.variantId,
         qty: l.qty,
-        line_discount: '0.00',
+        line_discount: '0',
       }))
-      const payments = [{ method: payMode, amount: grand }]
-      const customer =
-        payMode === 'DEBT'
-          ? {
-              name: customerName.trim(),
-              phone_normalized: customerPhone.trim(),
-            }
-          : undefined
+      const payments = pays.map((p) => ({ method: p.method, amount: p.amount.toString() }))
+      const customer = hasDebt
+        ? {
+            name: customerName.trim(),
+            phone_normalized: customerPhone.trim(),
+          }
+        : undefined
+
       const res = await completeSale({ lines, payments, customer }, idem)
       setLastSaleId(res.sale_id)
       clearCart()
+      setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
+      setActivePayId(null)
       showToast('ok', `Savdo: ${res.sale_id}`)
       setTimeout(() => setCompleting(false), 400)
       void tryPrint(res.sale_id as string)
@@ -206,17 +301,17 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     }
     if (e.key === 'F1') {
       e.preventDefault()
-      setPayMode('CASH')
+      setActiveMethod('CASH')
       return
     }
     if (e.key === 'F2') {
       e.preventDefault()
-      setPayMode('CARD')
+      setActiveMethod('CARD')
       return
     }
     if (e.key === 'F3') {
       e.preventDefault()
-      setPayMode('DEBT')
+      setActiveMethod('DEBT')
       return
     }
   }
@@ -232,7 +327,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     setBuffer(v)
   }
 
-  const grand = sumGrand(cart)
+  const payTotalView = paymentTotal().toString()
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -309,8 +404,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             autoComplete="off"
           />
           <p className="text-xs text-slate-500">
-            Enter: skaner yoki savdo | ESC: savat (Shift+ESC tez tozalash) | F1 naqd F2 karta F3
-            nasiya
+            Enter: skaner yoki savdo | ESC: savat | F1/F2/F3: aktiv tolov qatori method
           </p>
 
           <div className="rounded border border-slate-800 overflow-hidden">
@@ -328,7 +422,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                     <td className="p-2">
                       <div className="font-medium">{l.name}</div>
                       <div className="text-xs text-slate-400">
-                        {l.colorLabel} / {l.sizeLabel} — {l.barcode}
+                        {l.colorLabel} / {l.sizeLabel} - {l.barcode}
                       </div>
                     </td>
                     <td className="p-2 text-center">
@@ -354,7 +448,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                 {cart.length === 0 && (
                   <tr>
                     <td colSpan={3} className="p-6 text-center text-slate-500">
-                      Savat bo‘sh
+                      Savat bosh
                     </td>
                   </tr>
                 )}
@@ -363,19 +457,67 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
           </div>
         </section>
 
-        <aside className="w-full md:w-80 flex flex-col gap-3">
+        <aside className="w-full md:w-96 flex flex-col gap-3">
           <div className="rounded border border-slate-800 p-3 bg-slate-900">
-            <div className="text-sm text-slate-400 mb-2">To‘lov rejimi</div>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-slate-400">Split tolovlar</div>
+              <button
+                type="button"
+                className="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-600"
+                onClick={addPaymentRow}
+              >
+                + Qator
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {paymentRows.map((r, idx) => (
+                <div
+                  key={r.id}
+                  className={`grid grid-cols-[1fr_1fr_auto] gap-2 p-2 rounded border ${
+                    activePayId === r.id ? 'border-emerald-500 bg-slate-950' : 'border-slate-700'
+                  }`}
+                  onClick={() => setActivePayId(r.id)}
+                >
+                  <select
+                    className="px-2 py-2 rounded bg-slate-900 border border-slate-600 text-sm"
+                    value={r.method}
+                    onChange={(e) => updatePaymentRow(r.id, { method: e.target.value as PayMode })}
+                  >
+                    <option value="CASH">CASH</option>
+                    <option value="CARD">CARD</option>
+                    <option value="DEBT">DEBT</option>
+                  </select>
+                  <input
+                    className="px-2 py-2 rounded bg-slate-900 border border-slate-600 text-sm"
+                    value={r.amount}
+                    onChange={(e) => updatePaymentRow(r.id, { amount: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-xs"
+                    onClick={() => removePaymentRow(r.id)}
+                    disabled={paymentRows.length === 1}
+                    title={`Qator ${idx + 1}`}
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 text-xs text-slate-400">
+              Jami tolov: {payTotalView} / Savdo jami: {grand}
+            </div>
+
+            <div className="mt-2 flex gap-2 flex-wrap">
               {(['CASH', 'CARD', 'DEBT'] as PayMode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setPayMode(m)}
+                  onClick={() => setActiveMethod(m)}
                   className={`px-3 py-2 rounded text-sm border ${
-                    payMode === m
-                      ? 'bg-emerald-700 border-emerald-500'
-                      : 'bg-slate-800 border-slate-600'
+                    payMode === m ? 'bg-emerald-700 border-emerald-500' : 'bg-slate-800 border-slate-600'
                   }`}
                 >
                   {m === 'CASH' && 'F1 Naqd'}
@@ -386,7 +528,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             </div>
           </div>
 
-          {payMode === 'DEBT' && (
+          {paymentRows.some((p) => p.method === 'DEBT' && parseSom(p.amount).gt(0)) && (
             <div className="rounded border border-slate-800 p-3 bg-slate-900 space-y-2">
               <div className="text-sm text-slate-400">Mijoz</div>
               <input

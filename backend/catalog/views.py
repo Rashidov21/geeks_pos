@@ -3,6 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.permissions import IsAdminOrOwner, IsCashier
+
 from .models import Category, Color, Product, ProductVariant, Size
 from .serializers import (
     BulkGridSerializer,
@@ -18,35 +20,35 @@ from .services import bulk_create_variant_grid
 class CategoryListCreate(generics.ListCreateAPIView):
     queryset = Category.objects.filter(deleted_at__isnull=True)
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
 class SizeListCreate(generics.ListCreateAPIView):
     queryset = Size.objects.all()
     serializer_class = SizeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
 class ColorListCreate(generics.ListCreateAPIView):
     queryset = Color.objects.all()
     serializer_class = ColorSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
 class ProductListCreate(generics.ListCreateAPIView):
     queryset = Product.objects.filter(deleted_at__isnull=True)
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
 class ProductVariantListCreate(generics.ListCreateAPIView):
     queryset = ProductVariant.objects.filter(deleted_at__isnull=True)
     serializer_class = ProductVariantSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
 class VariantByBarcodeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def get(self, request):
         code = (request.query_params.get("code") or "").strip()
@@ -68,7 +70,7 @@ class VariantByBarcodeView(APIView):
 
 
 class BulkVariantGridView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request):
         ser = BulkGridSerializer(data=request.data)
@@ -88,4 +90,4 @@ class BulkVariantGridView(APIView):
 class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]

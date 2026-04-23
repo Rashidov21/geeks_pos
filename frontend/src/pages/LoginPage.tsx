@@ -1,7 +1,9 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { fetchCsrf, login } from '../api'
 
 export function LoginPage({ onDone }: { onDone: () => void }) {
+  const { t, i18n } = useTranslation()
   const [u, setU] = useState('cashier')
   const [p, setP] = useState('pass12345')
   const [err, setErr] = useState<string | null>(null)
@@ -28,9 +30,13 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         onSubmit={submit}
         className="w-full max-w-sm space-y-4 bg-slate-800 p-6 rounded-xl border border-slate-700"
       >
-        <h1 className="text-xl font-semibold text-center">Geeks POS</h1>
+        <div className="flex justify-end gap-2">
+          <button type="button" className="text-xs px-2 py-1 rounded bg-slate-700" onClick={() => i18n.changeLanguage('uz')}>{t('lang.uz')}</button>
+          <button type="button" className="text-xs px-2 py-1 rounded bg-slate-700" onClick={() => i18n.changeLanguage('ru')}>{t('lang.ru')}</button>
+        </div>
+        <h1 className="text-xl font-semibold text-center">{t('app.title')}</h1>
         <label className="block text-sm">
-          Username
+          {t('auth.username')}
           <input
             className="mt-1 w-full rounded bg-slate-950 border border-slate-600 px-3 py-2"
             value={u}
@@ -39,7 +45,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           />
         </label>
         <label className="block text-sm">
-          Password
+          {t('auth.password')}
           <input
             type="password"
             className="mt-1 w-full rounded bg-slate-950 border border-slate-600 px-3 py-2"
@@ -54,11 +60,9 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           disabled={busy}
           className="w-full py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-medium"
         >
-          {busy ? '...' : 'Kirish'}
+          {busy ? t('auth.logging') : t('auth.login')}
         </button>
-        <p className="text-xs text-slate-400 text-center">
-          Demo: create user with `python manage.py createsuperuser` or use seeded cashier.
-        </p>
+        <p className="text-xs text-slate-400 text-center">{t('auth.demo')}</p>
       </form>
     </div>
   )

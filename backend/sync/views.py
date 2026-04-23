@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.permissions import IsAdminOrOwner
 from printing.receipt import sale_to_receipt_dict
 from sales.models import Sale
 
@@ -15,7 +16,7 @@ class SyncPushView(APIView):
     Marks exported_at on success (single-device, no conflict engine).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request):
         url = os.environ.get("CLOUD_PUSH_URL", "").strip()

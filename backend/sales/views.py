@@ -8,6 +8,7 @@ from core.exceptions import (
     InsufficientStock,
     InvalidPaymentSplit,
 )
+from core.permissions import IsCashier
 from printing.receipt import sale_to_receipt_dict
 
 from .serializers import CompleteSaleSerializer
@@ -15,7 +16,7 @@ from .services import complete_sale
 
 
 class CompleteSaleView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request):
         key = request.headers.get("Idempotency-Key") or request.data.get(
@@ -56,7 +57,7 @@ class CompleteSaleView(APIView):
 
 
 class SaleDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def get(self, request, pk):
         from .models import Sale

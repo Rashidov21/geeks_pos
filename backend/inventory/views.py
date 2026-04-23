@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 
 from catalog.models import ProductVariant
 from core.exceptions import InsufficientStock
+from core.permissions import IsCashier
 
 from .models import InventoryMovement
 from .serializers import AdjustSerializer, ReceiveSerializer
@@ -11,7 +12,7 @@ from .services import apply_movement
 
 
 class ReceiveView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request):
         ser = ReceiveSerializer(data=request.data)
@@ -29,7 +30,7 @@ class ReceiveView(APIView):
 
 
 class AdjustView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request):
         ser = AdjustSerializer(data=request.data)

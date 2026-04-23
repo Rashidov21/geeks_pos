@@ -16,7 +16,8 @@ from inventory.services import apply_movement
 
 from .models import Payment, Sale, SaleLine
 
-QUANT = Decimal("0.01")
+# UZS/KGS market policy: nearest whole som with HALF_UP.
+QUANT = Decimal("1")
 
 
 def _q(d: Decimal) -> Decimal:
@@ -32,11 +33,6 @@ def complete_sale(
     customer: dict[str, Any] | None,
     note: str = "",
 ) -> Sale:
-    """
-    lines: variant_id, qty, line_discount (Decimal string ok)
-    payments: method CASH|CARD|DEBT, amount
-    customer: required if any DEBT payment — id or name+phone_normalized
-    """
     if not idempotency_key or len(idempotency_key) > 64:
         raise ValueError("Idempotency-Key required (max 64 chars)")
 
@@ -74,7 +70,6 @@ def _complete_sale_inner(
     customer: dict[str, Any] | None,
     note: str,
 ) -> Sale:
-    variants = {}
     parsed_lines: list[dict[str, Any]] = []
     subtotal = Decimal("0")
     discount_total = Decimal("0")
@@ -162,17 +157,14 @@ def _complete_sale_inner(
         )
 
     for pl in parsed_lines:
-        try:
-            apply_movement(
-                variant=pl["variant"],
-                qty_delta=-pl["qty"],
-                movement_type=InventoryMovement.Type.SALE,
-                user=cashier,
-                ref_sale=sale,
-                note="POS sale",
-            )
-        except InsufficientStock:
-            raise
+        apply_movement(
+            variant=pl["variant"],
+            qty_delta=-pl["qty"],
+            movement_type=InventoryMovement.Type.SALE,
+            user=cashier,
+            ref_sale=sale,
+            note="POS sale",
+        )
 
     for pp in parsed_pays:
         Payment.objects.create(
