@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from .models import Sale
+
 
 class SaleLineInSerializer(serializers.Serializer):
     variant_id = serializers.UUIDField()
@@ -34,3 +36,24 @@ class CompleteSaleSerializer(serializers.Serializer):
     )
     customer = CustomerInSerializer(required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class SaleHistorySerializer(serializers.ModelSerializer):
+    cashier_username = serializers.CharField(source="cashier.username", read_only=True)
+
+    class Meta:
+        model = Sale
+        fields = [
+            "id",
+            "status",
+            "cashier_username",
+            "completed_at",
+            "subtotal",
+            "discount_total",
+            "grand_total",
+            "note",
+        ]
+
+
+class VoidSaleSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, allow_blank=True, default="")

@@ -6,6 +6,41 @@ from PIL import Image
 from .models import StoreSettings
 
 
+def _normalize_lang(lang: str | None) -> str:
+    v = (lang or "uz").lower()
+    return "ru" if v.startswith("ru") else "uz"
+
+
+def _labels(lang: str) -> dict[str, str]:
+    if _normalize_lang(lang) == "ru":
+        return {
+            "tel": "Тел",
+            "sale": "Продажа",
+            "time": "Время",
+            "cashier": "Кассир",
+            "subtotal": "Подытог",
+            "discount": "Скидка",
+            "total": "ИТОГ",
+            "footer": "Спасибо!",
+            "method.CASH": "Наличные",
+            "method.CARD": "Карта",
+            "method.DEBT": "Долг",
+        }
+    return {
+        "tel": "Tel",
+        "sale": "Savdo",
+        "time": "Vaqt",
+        "cashier": "Kassir",
+        "subtotal": "Oraliq jami",
+        "discount": "Chegirma",
+        "total": "JAMI",
+        "footer": "Rahmat!",
+        "method.CASH": "Naqd",
+        "method.CARD": "Karta",
+        "method.DEBT": "Nasiya",
+    }
+
+
 def round_som(value) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
@@ -47,7 +82,7 @@ def _format_amount(v) -> str:
     return str(int(round_som(v)))
 
 
-def sale_to_receipt_dict(sale) -> dict:
+def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
     settings = StoreSettings.get_solo()
     lines_out = []
     for line in sale.lines.select_related("variant__product", "variant__size", "variant__color"):
@@ -71,6 +106,8 @@ def sale_to_receipt_dict(sale) -> dict:
             "address": settings.address,
             "footer_note": settings.footer_note,
             "transliterate_uz": settings.transliterate_uz,
+            "encoding": settings.encoding,
+            "lang": _normalize_lang(lang),
         },
         "sale_id": str(sale.id),
         "completed_at": sale.completed_at.isoformat(),
@@ -93,6 +130,8 @@ def _normalize_text(text: str, translit: bool) -> str:
 def receipt_plain_text(receipt: dict) -> str:
     store = receipt.get("store", {})
     translit = bool(store.get("transliterate_uz", True))
+    lang = _normalize_lang(store.get("lang", "uz"))
+    labels = _labels(lang)
 
     def t(v: str) -> str:
         return _normalize_text(v, translit)
@@ -102,10 +141,10 @@ def receipt_plain_text(receipt: dict) -> str:
     if store.get("address"):
         buf.append(t(store["address"]))
     if store.get("phone"):
-        buf.append(f"Tel: {t(store['phone'])}")
-    buf.append(_line_80mm("Sale", receipt["sale_id"][:8]))
-    buf.append(_line_80mm("Time", receipt["completed_at"][:19]))
-    buf.append(_line_80mm("Cashier", t(receipt["cashier"])))
+        buf.append(f"{labels['tel']}: {t(store['phone'])}")
+    buf.append(_line_80mm(labels["sale"], receipt["sale_id"][:8]))
+    buf.append(_line_80mm(labels["time"], receipt["completed_at"][:19]))
+    buf.append(_line_80mm(labels["cashier"], t(receipt["cashier"])))
     buf.append("-" * 42)
 
     for ln in receipt["lines"]:
@@ -114,13 +153,14 @@ def receipt_plain_text(receipt: dict) -> str:
         buf.append(_line_80mm(f"{ln['qty']} x {ln['unit']}", ln["total"]))
 
     buf.append("-" * 42)
-    buf.append(_line_80mm("Subtotal", receipt["subtotal"]))
-    buf.append(_line_80mm("Discount", receipt["discount_total"]))
-    buf.append(_line_80mm("TOTAL", receipt["grand_total"]))
+    buf.append(_line_80mm(labels["subtotal"], receipt["subtotal"]))
+    buf.append(_line_80mm(labels["discount"], receipt["discount_total"]))
+    buf.append(_line_80mm(labels["total"], receipt["grand_total"]))
     for p in receipt["payments"]:
-        buf.append(_line_80mm(t(p["method"]), p["amount"]))
+        method_label = labels.get(f"method.{p['method']}", p["method"])
+        buf.append(_line_80mm(t(method_label), p["amount"]))
     buf.append("-" * 42)
-    footer = t(store.get("footer_note") or "Rahmat!")
+    footer = t(store.get("footer_note") or labels["footer"])
     if footer:
         buf.append(footer)
     buf.append("")
@@ -154,9 +194,12 @@ def receipt_escpos_bytes(receipt: dict) -> bytes:
     p = Dummy()
     try:
         p.hw("INIT")
-        p.charcode("CP866")
+        p.charcode((settings.encoding or "cp866").upper())
     except Exception:
-        pass
+        try:
+            p.charcode("CP866")
+        except Exception:
+            pass
 
     logo = _load_logo_bw(settings)
     if logo is not None:

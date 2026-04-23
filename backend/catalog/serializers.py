@@ -57,6 +57,11 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "deleted_at",
         ]
 
+    def update(self, instance, validated_data):
+        # Stock is ledger-driven and must not be mutated from catalog edits.
+        validated_data.pop("stock_qty", None)
+        return super().update(instance, validated_data)
+
 
 class BulkGridCellSerializer(serializers.Serializer):
     size_id = serializers.UUIDField()

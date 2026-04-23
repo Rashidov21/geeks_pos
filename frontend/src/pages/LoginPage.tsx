@@ -18,7 +18,8 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
       await login(u, p)
       onDone()
     } catch (ex: unknown) {
-      setErr(ex instanceof Error ? ex.message : t('msg.errorGeneric'))
+      const code = (ex as Error & { code?: string }).code
+      setErr(t(`err.${code || 'INVALID_CREDENTIALS'}`, { defaultValue: t('msg.errorGeneric') }))
     } finally {
       setBusy(false)
     }
@@ -31,8 +32,28 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         className="w-full max-w-sm space-y-4 bg-slate-800 p-6 rounded-xl border border-slate-700"
       >
         <div className="flex justify-end gap-2">
-          <button type="button" className="text-xs px-2 py-1 rounded bg-slate-700" onClick={() => i18n.changeLanguage('uz')}>{t('lang.uz')}</button>
-          <button type="button" className="text-xs px-2 py-1 rounded bg-slate-700" onClick={() => i18n.changeLanguage('ru')}>{t('lang.ru')}</button>
+          <button
+            type="button"
+            className={`text-xs px-2 py-1 rounded border ${
+              i18n.language.startsWith('uz')
+                ? 'bg-emerald-700 border-emerald-500 text-white'
+                : 'bg-slate-700 border-slate-600 text-slate-200'
+            }`}
+            onClick={() => i18n.changeLanguage('uz')}
+          >
+            {t('lang.uz')}
+          </button>
+          <button
+            type="button"
+            className={`text-xs px-2 py-1 rounded border ${
+              i18n.language.startsWith('ru')
+                ? 'bg-emerald-700 border-emerald-500 text-white'
+                : 'bg-slate-700 border-slate-600 text-slate-200'
+            }`}
+            onClick={() => i18n.changeLanguage('ru')}
+          >
+            {t('lang.ru')}
+          </button>
         </div>
         <h1 className="text-xl font-semibold text-center">{t('app.title')}</h1>
         <label className="block text-sm">
@@ -42,6 +63,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
             value={u}
             onChange={(e) => setU(e.target.value)}
             autoComplete="username"
+            placeholder={t('auth.usernamePlaceholder')}
           />
         </label>
         <label className="block text-sm">
@@ -52,6 +74,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
             value={p}
             onChange={(e) => setP(e.target.value)}
             autoComplete="current-password"
+            placeholder={t('auth.passwordPlaceholder')}
           />
         </label>
         {err && <p className="text-red-400 text-sm">{err}</p>}

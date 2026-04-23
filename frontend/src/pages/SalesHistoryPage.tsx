@@ -1,0 +1,184 @@
+import type { SaleHistoryRow } from '../api'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+export function SalesHistoryPage({
+  sales,
+  count,
+  page,
+  onPage,
+  onFilter,
+  onExport,
+  onVoid,
+  canVoid,
+}: {
+  sales: SaleHistoryRow[]
+  count: number
+  page: number
+  onPage: (p: number) => void
+  onFilter: (from: string, to: string, q: string) => void
+  onExport: () => void
+  onVoid: (saleId: string, reason: string) => Promise<void>
+  canVoid: boolean
+}) {
+  const { t } = useTranslation()
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [query, setQuery] = useState('')
+  const [voiding, setVoiding] = useState<SaleHistoryRow | null>(null)
+  const [reason, setReason] = useState('')
+  const [actionToast, setActionToast] = useState<{
+    kind: 'ok' | 'err'
+    message: string
+  } | null>(null)
+  const [voidBusy, setVoidBusy] = useState(false)
+  const maxPage = Math.max(1, Math.ceil(count / 20))
+
+  useEffect(() => {
+    const timer = setTimeout(() => onFilter(from, to, query.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [from, to, query, onFilter])
+
+  return (
+    <div className="p-4 space-y-4">
+      <h2 className="text-xl font-semibold">{t('admin.sales.title')}</h2>
+      {actionToast && (
+        <div
+          className={`px-3 py-2 rounded text-sm border ${
+            actionToast.kind === 'ok'
+              ? 'bg-emerald-950 border-emerald-700 text-emerald-100'
+              : 'bg-red-950 border-red-700 text-red-100'
+          }`}
+        >
+          {actionToast.message}
+        </div>
+      )}
+      <div className="flex gap-2 items-center">
+        <input type="date" className="px-2 py-1 rounded bg-slate-900 border border-slate-700" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input type="date" className="px-2 py-1 rounded bg-slate-900 border border-slate-700" value={to} onChange={(e) => setTo(e.target.value)} />
+        <input
+          className="px-2 py-1 rounded bg-slate-900 border border-slate-700"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('admin.sales.searchPlaceholder')}
+        />
+        <button type="button" className="px-3 py-1 rounded bg-slate-800 border border-slate-700" onClick={onExport}>
+          {t('admin.sales.exportCsv')}
+        </button>
+      </div>
+      <p className="text-xs text-slate-400">{t('admin.sales.hint')}</p>
+      <div className="rounded border border-slate-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-900 text-slate-400">
+            <tr>
+              <th className="text-left p-2">{t('admin.sales.saleId')}</th>
+              <th className="text-left p-2">{t('admin.sales.cashier')}</th>
+              <th className="text-left p-2">{t('admin.sales.time')}</th>
+              <th className="text-left p-2">{t('admin.sales.status')}</th>
+              <th className="text-right p-2">{t('admin.sales.total')}</th>
+              <th className="text-right p-2">{t('admin.sales.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sales.map((s) => (
+              <tr key={s.id} className="border-t border-slate-800">
+                <td className="p-2">{s.id.slice(0, 8)}</td>
+                <td className="p-2">{s.cashier_username}</td>
+                <td className="p-2">{new Date(s.completed_at).toLocaleString()}</td>
+                <td className="p-2">{t(`status.${s.status}`, { defaultValue: s.status })}</td>
+                <td className="p-2 text-right">{s.grand_total}</td>
+                <td className="p-2 text-right">
+                  {canVoid && s.status !== 'VOIDED' && (
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded bg-red-800 border border-red-600"
+                      onClick={() => setVoiding(s)}
+                    >
+                      {t('admin.sales.void')}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {sales.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-slate-500">
+                  {t('admin.sales.empty')}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          className="px-3 py-1 rounded bg-slate-800 border border-slate-700"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
+          {t('admin.common.prev')}
+        </button>
+        <div className="px-3 py-1 text-sm text-slate-400">
+          {t('admin.common.pageOf', { page, maxPage })}
+        </div>
+        <button
+          type="button"
+          className="px-3 py-1 rounded bg-slate-800 border border-slate-700"
+          disabled={page >= maxPage}
+          onClick={() => onPage(page + 1)}
+        >
+          {t('admin.common.next')}
+        </button>
+      </div>
+      {voiding && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-lg font-semibold">
+              {t('admin.sales.voidTitle', { saleId: voiding.id.slice(0, 8) })}
+            </h3>
+            <textarea
+              className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700"
+              placeholder={t('admin.sales.voidReason')}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" className="px-3 py-2 rounded bg-slate-800 border border-slate-700" onClick={() => setVoiding(null)}>
+                {t('admin.common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-red-700 border border-red-500 disabled:opacity-50"
+                disabled={voidBusy}
+                onClick={async () => {
+                  if (!canVoid) {
+                    setActionToast({ kind: 'err', message: t('err.PERMISSION_DENIED') })
+                    return
+                  }
+                  setVoidBusy(true)
+                  try {
+                    await onVoid(voiding.id, reason)
+                    setActionToast({ kind: 'ok', message: t('admin.sales.voidSuccess') })
+                    setVoiding(null)
+                    setReason('')
+                  } catch (e: unknown) {
+                    const code = (e as Error & { code?: string }).code
+                    const message = t(`err.${code || 'VOID_FAILED'}`, {
+                      defaultValue: t('err.VOID_FAILED'),
+                    })
+                    setActionToast({ kind: 'err', message })
+                  } finally {
+                    setVoidBusy(false)
+                  }
+                }}
+              >
+                {voidBusy ? t('admin.sales.voiding') : t('admin.sales.confirmVoid')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

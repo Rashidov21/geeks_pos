@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import IsCashier
+from core.permissions import IsAdminOrOwner
 
 from .models import Customer, Debt
 from .serializers import CustomerSerializer, DebtPaymentSerializer, DebtSerializer
@@ -13,7 +13,7 @@ from .services import record_debt_payment
 
 class CustomerSearchView(generics.ListAPIView):
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsCashier]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def get_queryset(self):
         q = (self.request.query_params.get("q") or "").strip()
@@ -27,19 +27,19 @@ class CustomerSearchView(generics.ListAPIView):
 class CustomerCreateView(generics.CreateAPIView):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsCashier]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
 class OpenDebtsView(generics.ListAPIView):
     serializer_class = DebtSerializer
-    permission_classes = [IsAuthenticated, IsCashier]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def get_queryset(self):
         return Debt.objects.filter(status=Debt.Status.OPEN).select_related("customer")
 
 
 class DebtPaymentView(APIView):
-    permission_classes = [IsAuthenticated, IsCashier]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request):
         ser = DebtPaymentSerializer(data=request.data)

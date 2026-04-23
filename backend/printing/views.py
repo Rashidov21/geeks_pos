@@ -11,6 +11,23 @@ from .receipt import receipt_escpos_bytes, receipt_plain_text, sale_to_receipt_d
 from .serializers import StoreSettingsSerializer
 
 
+def _request_lang(request) -> str:
+    return (request.headers.get("Accept-Language") or "uz").split(",")[0]
+
+
+def _is_admin_or_owner(user) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    profile = getattr(user, "profile", None)
+    return getattr(profile, "role", None) in ("ADMIN", "OWNER")
+
+
+def _has_sale_access(user, sale: Sale) -> bool:
+    if _is_admin_or_owner(user):
+        return True
+    return sale.cashier_id == user.id
+
+
 class StoreSettingsView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
@@ -31,10 +48,15 @@ class ReceiptPayloadView(APIView):
     permission_classes = [IsAuthenticated, IsCashier]
 
     def get(self, request, sale_id):
-        sale = Sale.objects.prefetch_related("lines__variant__product", "payments").get(
+        sale = Sale.objects.select_related("cashier").prefetch_related("lines__variant__product", "payments").get(
             pk=sale_id
         )
-        dto = sale_to_receipt_dict(sale)
+        if not _has_sale_access(request.user, sale):
+            return Response(
+                {"code": "SALE_ACCESS_DENIED", "detail": "You do not have access to this sale."},
+                status=403,
+            )
+        dto = sale_to_receipt_dict(sale, lang=_request_lang(request))
         return Response(
             {
                 "receipt": dto,
@@ -48,10 +70,15 @@ class ReceiptEscposView(APIView):
     permission_classes = [IsAuthenticated, IsCashier]
 
     def get(self, request, sale_id):
-        sale = Sale.objects.prefetch_related("lines__variant__product", "payments").get(
+        sale = Sale.objects.select_related("cashier").prefetch_related("lines__variant__product", "payments").get(
             pk=sale_id
         )
-        dto = sale_to_receipt_dict(sale)
+        if not _has_sale_access(request.user, sale):
+            return Response(
+                {"code": "SALE_ACCESS_DENIED", "detail": "You do not have access to this sale."},
+                status=403,
+            )
+        dto = sale_to_receipt_dict(sale, lang=_request_lang(request))
         raw = receipt_escpos_bytes(dto)
         import base64
 

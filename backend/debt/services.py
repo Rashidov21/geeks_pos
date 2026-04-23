@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import transaction
 
+from core.audit import log_audit
+
 from .models import Customer, Debt
 
 
@@ -39,5 +41,15 @@ def record_debt_payment(
         from core.exceptions import DebtPolicyError
 
         raise DebtPolicyError("Payment exceeds total open debt")
+
+    log_audit(
+        event_type="debt_repayment",
+        actor=getattr(user, "username", None),
+        entity_id=str(customer.id),
+        payload={
+            "amount": str(amount),
+            "touched_debt_ids": [str(d.id) for d in touched],
+        },
+    )
 
     return touched

@@ -3,6 +3,19 @@ from django.middleware.csrf import get_token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from accounts.models import Role
+
+
+def _resolve_role(user) -> str:
+    # Superuser should behave as top-level manager in UI/API checks.
+    if getattr(user, "is_superuser", False):
+        return str(Role.OWNER)
+    profile = getattr(user, "profile", None)
+    raw_role = getattr(profile, "role", Role.CASHIER) or Role.CASHIER
+    role = str(raw_role).upper()
+    if role in {Role.CASHIER, Role.ADMIN, Role.OWNER}:
+        return str(role)
+    return str(Role.CASHIER)
 
 
 class CsrfView(APIView):
@@ -20,9 +33,11 @@ class LoginView(APIView):
         password = request.data.get("password")
         user = authenticate(request, username=username, password=password)
         if not user:
-            return Response({"detail": "Invalid credentials"}, status=400)
+            return Response(
+                {"code": "INVALID_CREDENTIALS", "detail": "Invalid credentials"}, status=400
+            )
         login(request, user)
-        role = getattr(user.profile, "role", "CASHIER")
+        role = _resolve_role(user)
         return Response({"username": user.username, "role": role})
 
 
@@ -37,5 +52,5 @@ class MeView(APIView):
 
     def get(self, request):
         u = request.user
-        role = getattr(u.profile, "role", "CASHIER")
+        role = _resolve_role(u)
         return Response({"username": u.username, "role": role})

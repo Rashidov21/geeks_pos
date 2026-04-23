@@ -9,6 +9,7 @@ urlpatterns = [
     path("products/", views.ProductListCreate.as_view()),
     path("products/<uuid:pk>/", views.ProductDetail.as_view()),
     path("variants/", views.ProductVariantListCreate.as_view()),
+    path("variants/<uuid:pk>/", views.ProductVariantDetail.as_view()),
     path("variants/by-barcode/", views.VariantByBarcodeView.as_view()),
     path("variants/bulk-grid/", views.BulkVariantGridView.as_view()),
 ]

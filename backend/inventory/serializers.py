@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from .models import StocktakeLine, StocktakeSession
+
 from .models import InventoryMovement
 
 
@@ -13,3 +15,37 @@ class AdjustSerializer(serializers.Serializer):
     variant_id = serializers.UUIDField()
     qty_delta = serializers.IntegerField()
     note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class StocktakeSessionCreateSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class StocktakeCountSerializer(serializers.Serializer):
+    variant_id = serializers.UUIDField()
+    counted_qty = serializers.IntegerField(min_value=0)
+
+
+class StocktakeLineSerializer(serializers.ModelSerializer):
+    product_name_uz = serializers.CharField(source="variant.product.name_uz", read_only=True)
+    barcode = serializers.CharField(source="variant.barcode", read_only=True)
+
+    class Meta:
+        model = StocktakeLine
+        fields = [
+            "id",
+            "variant",
+            "product_name_uz",
+            "barcode",
+            "expected_qty",
+            "counted_qty",
+            "variance_qty",
+        ]
+
+
+class StocktakeSessionSerializer(serializers.ModelSerializer):
+    lines = StocktakeLineSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = StocktakeSession
+        fields = ["id", "status", "note", "created_at", "applied_at", "lines"]

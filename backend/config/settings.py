@@ -91,14 +91,22 @@ REST_FRAMEWORK = {
 
 CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5175",
     "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
     "http://tauri.localhost",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5175",
     "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
 ]
@@ -108,4 +116,7 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "audit": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
 }

@@ -1,8 +1,9 @@
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+import time
 
 from django.contrib.auth.models import User
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 
 from catalog.models import ProductVariant
 from core.exceptions import (
@@ -13,6 +14,7 @@ from core.exceptions import (
 from debt.models import Customer, Debt
 from inventory.models import InventoryMovement
 from inventory.services import apply_movement
+from core.audit import log_audit
 
 from .models import Payment, Sale, SaleLine
 
@@ -47,20 +49,28 @@ def complete_sale(
     if not lines:
         raise ValueError("At least one line required")
 
-    try:
-        with transaction.atomic():
-            sale = _complete_sale_inner(
-                idempotency_key=idempotency_key,
-                cashier=cashier,
-                lines=lines,
-                payments=payments,
-                customer=customer,
-                expected_grand_total=expected_grand_total,
-                note=note,
-            )
-            return sale
-    except IntegrityError:
-        return Sale.objects.get(idempotency_key=idempotency_key)
+    attempts = 3
+    for idx in range(attempts):
+        try:
+            with transaction.atomic():
+                sale = _complete_sale_inner(
+                    idempotency_key=idempotency_key,
+                    cashier=cashier,
+                    lines=lines,
+                    payments=payments,
+                    customer=customer,
+                    expected_grand_total=expected_grand_total,
+                    note=note,
+                )
+                return sale
+        except IntegrityError:
+            return Sale.objects.get(idempotency_key=idempotency_key)
+        except OperationalError as ex:
+            msg = str(ex).lower()
+            locked = "database is locked" in msg or "database table is locked" in msg
+            if (not locked) or idx == attempts - 1:
+                raise
+            time.sleep(0.08 * (idx + 1))
 
 
 def _complete_sale_inner(
@@ -189,6 +199,17 @@ def _complete_sale_inner(
             status=Debt.Status.OPEN,
         )
 
+    log_audit(
+        event_type="sale_completed",
+        actor=cashier.username,
+        entity_id=str(sale.id),
+        payload={
+            "grand_total": str(sale.grand_total),
+            "line_count": len(parsed_lines),
+            "payment_count": len(parsed_pays),
+        },
+    )
+
     return sale
 
 
@@ -207,3 +228,39 @@ def _resolve_customer(data: dict[str, Any]) -> Customer:
         cust.name = name
         cust.save(update_fields=["name"])
     return cust
+
+
+@transaction.atomic
+def void_sale(*, sale: Sale, user: User, reason: str = "") -> Sale:
+    if sale.status == Sale.Status.VOIDED:
+        return sale
+
+    sale_lines = SaleLine.objects.select_related("variant").filter(sale=sale)
+    for line in sale_lines:
+        apply_movement(
+            variant=line.variant,
+            qty_delta=line.qty,
+            movement_type=InventoryMovement.Type.RETURN,
+            user=user,
+            ref_sale=sale,
+            note=f"Void sale restock. {reason}".strip(),
+        )
+
+    debt = getattr(sale, "debt_record", None)
+    if debt:
+        debt.status = Debt.Status.VOIDED
+        if debt.paid_amount > debt.total_amount:
+            debt.paid_amount = debt.total_amount
+        debt.remaining_amount = debt.total_amount - debt.paid_amount
+        debt.save(update_fields=["status", "paid_amount", "remaining_amount", "updated_at"])
+
+    sale.status = Sale.Status.VOIDED
+    sale.note = f"{sale.note}\nVOID: {reason}".strip() if reason else sale.note
+    sale.save(update_fields=["status", "note"])
+    log_audit(
+        event_type="sale_voided",
+        actor=user.username if user else None,
+        entity_id=str(sale.id),
+        payload={"reason": reason},
+    )
+    return sale

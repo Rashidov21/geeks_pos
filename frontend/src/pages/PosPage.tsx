@@ -24,7 +24,11 @@ function roundSom(v: Decimal.Value): Decimal {
 
 function parseSom(v: string): Decimal {
   const normalized = (v || '0').replace(',', '.').trim() || '0'
-  return roundSom(new Decimal(normalized))
+  try {
+    return roundSom(new Decimal(normalized))
+  } catch {
+    return new Decimal(0)
+  }
 }
 
 function beepError() {
@@ -68,6 +72,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
   const [completing, setCompleting] = useState(false)
   const [printBanner, setPrintBanner] = useState<string | null>(null)
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
+  const [clearArmed, setClearArmed] = useState(false)
 
   const cart = usePosStore((s) => s.cart)
   const payMode = usePosStore((s) => s.payMode)
@@ -87,13 +92,22 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
   ])
   const [activePayId, setActivePayId] = useState<string | null>(null)
 
-  const refocusScan = useCallback(() => {
-    requestAnimationFrame(() => scanRef.current?.focus())
+  const safeRefocus = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (document.activeElement !== scanRef.current) {
+        scanRef.current?.focus()
+      }
+    })
+    window.setTimeout(() => {
+      if (document.activeElement !== scanRef.current) {
+        scanRef.current?.focus()
+      }
+    }, 50)
   }, [])
 
   useEffect(() => {
-    refocusScan()
-  }, [refocusScan, cart, toast, banner, completing, printBanner])
+    safeRefocus()
+  }, [safeRefocus, cart, toast, banner, completing, printBanner])
 
   useEffect(() => {
     if (paymentRows.length === 1) {
@@ -184,7 +198,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       }
     }
     if (ok) showToast('ok', t('msg.printSent'))
-    refocusScan()
+    safeRefocus()
   }
 
   async function handleScanSubmit(code: string) {
@@ -202,18 +216,19 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
         qty: 1,
       })
       setBuffer('')
-      refocusScan()
+      safeRefocus()
     } catch (e: unknown) {
       beepError()
       setScanFlash(true)
       setTimeout(() => setScanFlash(false), 400)
+      const code = (e as Error & { code?: string }).code
       const msg =
-        e instanceof Error && (e as Error & { code?: string }).code === 'BARCODE_NOT_FOUND'
+        code === 'BARCODE_NOT_FOUND'
           ? `${t('msg.scanNotFound')}: ${c}`
-          : t('msg.scanApi')
+          : t(`err.${code || 'API_ERROR'}`, { defaultValue: t('msg.scanApi') })
       showToast('err', msg)
       setBuffer('')
-      refocusScan()
+      safeRefocus()
     }
   }
 
@@ -226,7 +241,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     if (!payTotal.eq(grandDec)) {
       beepError()
       setBanner(`${t('msg.paymentMismatch')} (${payTotal.toString()} / ${grandDec.toString()})`)
-      refocusScan()
+      safeRefocus()
       return
     }
 
@@ -234,7 +249,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     if (hasDebt && (!customerPhone.trim() || !customerName.trim())) {
       beepError()
       setBanner(t('msg.debtRequired'))
-      refocusScan()
+      safeRefocus()
       return
     }
 
@@ -275,7 +290,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     } catch (e: unknown) {
       beepError()
       const code = (e as Error & { code?: string }).code
-      const msg = e instanceof Error ? e.message : t('msg.errorGeneric')
+      const msg = t(`err.${code || 'UNKNOWN'}`, { defaultValue: t('msg.errorGeneric') })
       if (code === 'INSUFFICIENT_STOCK') {
         setBanner(`${t('msg.stock')} ${msg}`)
       } else {
@@ -284,7 +299,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       showToast('err', msg)
       setCompleting(false)
     }
-    refocusScan()
+    safeRefocus()
   }
 
   function onScanKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -300,11 +315,16 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     if (e.key === 'Escape') {
       e.preventDefault()
       if (cart.length > 0) {
-        if (e.shiftKey) clearCart()
-        else if (confirm(t('msg.clearCartConfirm'))) clearCart()
+        if (e.shiftKey || clearArmed) {
+          clearCart()
+          setClearArmed(false)
+        } else {
+          setClearArmed(true)
+          setBanner(t('msg.clearCartConfirm'))
+        }
       }
       setBuffer('')
-      refocusScan()
+      safeRefocus()
       return
     }
     if (e.key === 'F1') {
@@ -344,14 +364,22 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
           <span className="font-semibold">{t('app.title')}</span>
           <button
             type="button"
-            className="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-600"
+            className={`text-xs px-2 py-1 rounded border ${
+              i18n.language.startsWith('uz')
+                ? 'bg-emerald-700 border-emerald-500 text-white'
+                : 'bg-slate-800 border-slate-600 text-slate-200'
+            }`}
             onClick={() => i18n.changeLanguage('uz')}
           >
             {t('lang.uz')}
           </button>
           <button
             type="button"
-            className="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-600"
+            className={`text-xs px-2 py-1 rounded border ${
+              i18n.language.startsWith('ru')
+                ? 'bg-emerald-700 border-emerald-500 text-white'
+                : 'bg-slate-800 border-slate-600 text-slate-200'
+            }`}
             onClick={() => i18n.changeLanguage('ru')}
           >
             {t('lang.ru')}
@@ -399,7 +427,8 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             className="ml-2 underline text-white"
             onClick={() => {
               setBanner(null)
-              refocusScan()
+              setClearArmed(false)
+              safeRefocus()
             }}
           >
             {t('msg.close')}
@@ -471,6 +500,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                   <tr>
                     <td colSpan={3} className="p-6 text-center text-slate-500">
                       {t('cart.empty')}
+                      <div className="text-xs text-slate-400 mt-1">{t('cart.emptyHint')}</div>
                     </td>
                   </tr>
                 )}

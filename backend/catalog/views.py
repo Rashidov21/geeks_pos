@@ -1,7 +1,10 @@
 from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db.models import Q
+from django.utils import timezone
 
 from core.permissions import IsAdminOrOwner, IsCashier
 
@@ -36,15 +39,50 @@ class ColorListCreate(generics.ListCreateAPIView):
 
 
 class ProductListCreate(generics.ListCreateAPIView):
-    queryset = Product.objects.filter(deleted_at__isnull=True)
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    class CatalogPagination(PageNumberPagination):
+        page_size = 20
+        page_size_query_param = "page_size"
+        max_page_size = 200
+
+    pagination_class = CatalogPagination
+
+    def get_queryset(self):
+        include_deleted = self.request.query_params.get("include_deleted") == "1"
+        query = (self.request.query_params.get("q") or "").strip()
+        qs = Product.objects.all()
+        if not include_deleted:
+            qs = qs.filter(deleted_at__isnull=True)
+        if query:
+            qs = qs.filter(Q(name_uz__icontains=query) | Q(name_ru__icontains=query))
+        return qs.order_by("name_uz")
 
 
 class ProductVariantListCreate(generics.ListCreateAPIView):
-    queryset = ProductVariant.objects.filter(deleted_at__isnull=True)
     serializer_class = ProductVariantSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    class CatalogPagination(PageNumberPagination):
+        page_size = 20
+        page_size_query_param = "page_size"
+        max_page_size = 200
+
+    pagination_class = CatalogPagination
+
+    def get_queryset(self):
+        include_deleted = self.request.query_params.get("include_deleted") == "1"
+        query = (self.request.query_params.get("q") or "").strip()
+        qs = ProductVariant.objects.select_related("product", "size", "color")
+        if not include_deleted:
+            qs = qs.filter(deleted_at__isnull=True)
+        if query:
+            qs = qs.filter(
+                Q(barcode__icontains=query)
+                | Q(product__name_uz__icontains=query)
+                | Q(size__label_uz__icontains=query)
+                | Q(color__label_uz__icontains=query)
+            )
+        return qs.order_by("product__name_uz", "barcode")
 
 
 class VariantByBarcodeView(APIView):
@@ -91,3 +129,17 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+    def perform_destroy(self, instance):
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=["deleted_at"])
+
+
+class ProductVariantDetail(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ProductVariant.objects.select_related("product", "size", "color")
+    serializer_class = ProductVariantSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+    def perform_destroy(self, instance):
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=["deleted_at"])
