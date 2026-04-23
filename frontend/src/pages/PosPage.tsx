@@ -176,14 +176,14 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
         } catch {
           try {
             await navigator.clipboard.writeText(plain)
-            setPrintBanner('Chek clipboardga nusxalandi (printer yoq yoki Tauri yoq).')
+            setPrintBanner(t('msg.printClipboard'))
           } catch {
-            setPrintBanner('Chek chiqarilmadi. Qayta urinib koring.')
+            setPrintBanner(t('msg.printFailed'))
           }
         }
       }
     }
-    if (ok) showToast('ok', 'Chek yuborildi')
+    if (ok) showToast('ok', t('msg.printSent'))
     refocusScan()
   }
 
@@ -209,8 +209,8 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       setTimeout(() => setScanFlash(false), 400)
       const msg =
         e instanceof Error && (e as Error & { code?: string }).code === 'BARCODE_NOT_FOUND'
-          ? `Barcode topilmadi: ${c}`
-          : 'Barcode xato yoki API ishlamayapti'
+          ? `${t('msg.scanNotFound')}: ${c}`
+          : t('msg.scanApi')
       showToast('err', msg)
       setBuffer('')
       refocusScan()
@@ -225,7 +225,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
     if (!payTotal.eq(grandDec)) {
       beepError()
-      setBanner(`Tolovlar yigindisi (${payTotal.toString()}) jami (${grandDec.toString()})ga teng emas.`)
+      setBanner(`${t('msg.paymentMismatch')} (${payTotal.toString()} / ${grandDec.toString()})`)
       refocusScan()
       return
     }
@@ -233,7 +233,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     const hasDebt = pays.some((p) => p.method === 'DEBT' && p.amount.gt(0))
     if (hasDebt && (!customerPhone.trim() || !customerName.trim())) {
       beepError()
-      setBanner('Nasiya uchun mijoz ism va telefon majburiy.')
+      setBanner(t('msg.debtRequired'))
       refocusScan()
       return
     }
@@ -261,15 +261,15 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       clearCart()
       setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
       setActivePayId(null)
-      showToast('ok', `Savdo: ${res.sale_id}`)
+      showToast('ok', `${t('msg.sale')}: ${res.sale_id}`)
       setTimeout(() => setCompleting(false), 400)
       void tryPrint(res.sale_id as string)
     } catch (e: unknown) {
       beepError()
       const code = (e as Error & { code?: string }).code
-      const msg = e instanceof Error ? e.message : 'Xato'
+      const msg = e instanceof Error ? e.message : 'Error'
       if (code === 'INSUFFICIENT_STOCK') {
-        setBanner(`Zaxira yetarli emas. ${msg}`)
+        setBanner(`${t('msg.stock')} ${msg}`)
       } else {
         setBanner(msg)
       }
@@ -293,7 +293,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       e.preventDefault()
       if (cart.length > 0) {
         if (e.shiftKey) clearCart()
-        else if (confirm('Savatni tozalash?')) clearCart()
+        else if (confirm('Clear cart?')) clearCart()
       }
       setBuffer('')
       refocusScan()
@@ -332,7 +332,23 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <header className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900">
-        <span className="font-semibold">Geeks POS</span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{t('app.title')}</span>
+          <button
+            type="button"
+            className="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-600"
+            onClick={() => i18n.changeLanguage('uz')}
+          >
+            {t('lang.uz')}
+          </button>
+          <button
+            type="button"
+            className="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-600"
+            onClick={() => i18n.changeLanguage('ru')}
+          >
+            {t('lang.ru')}
+          </button>
+        </div>
         <div className="flex gap-2 items-center">
           {lastSaleId && (
             <button
@@ -340,7 +356,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
               className="text-sm px-2 py-1 rounded bg-slate-800 border border-slate-600"
               onClick={() => lastSaleId && void tryPrint(lastSaleId)}
             >
-              Qayta chek
+              {t('header.reprint')}
             </button>
           )}
           <button
@@ -351,7 +367,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
               onLogout()
             }}
           >
-            Chiqish
+            {t('header.logout')}
           </button>
         </div>
       </header>
@@ -378,7 +394,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
               refocusScan()
             }}
           >
-            Yopish
+            {t('msg.close')}
           </button>
         </div>
       )}
@@ -390,7 +406,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
       <main className="flex-1 flex flex-col md:flex-row gap-4 p-4">
         <section className="flex-1 flex flex-col gap-3">
-          <label className="text-xs text-slate-400">Shtrix-kod (fokus doim bu yerda)</label>
+          <label className="text-xs text-slate-400">{t('scan.label')}</label>
           <input
             ref={scanRef}
             id="posScanInput"
@@ -400,20 +416,18 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             className={`w-full text-lg px-3 py-3 rounded border bg-slate-900 outline-none ${
               scanFlash ? 'border-red-500 ring-2 ring-red-600' : 'border-slate-600'
             }`}
-            placeholder="Skaner..."
+            placeholder={t('scan.placeholder')}
             autoComplete="off"
           />
-          <p className="text-xs text-slate-500">
-            Enter: skaner yoki savdo | ESC: savat | F1/F2/F3: aktiv tolov qatori method
-          </p>
+          <p className="text-xs text-slate-500">{t('scan.hint')}</p>
 
           <div className="rounded border border-slate-800 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-slate-400">
                 <tr>
-                  <th className="text-left p-2">Tovar</th>
-                  <th className="p-2">Qty</th>
-                  <th className="text-right p-2">Summa</th>
+                  <th className="text-left p-2">{t('cart.title')}</th>
+                  <th className="p-2">{t('cart.qty')}</th>
+                  <th className="text-right p-2">{t('cart.sum')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -448,7 +462,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                 {cart.length === 0 && (
                   <tr>
                     <td colSpan={3} className="p-6 text-center text-slate-500">
-                      Savat bosh
+                      {t('cart.empty')}
                     </td>
                   </tr>
                 )}
@@ -460,13 +474,13 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
         <aside className="w-full md:w-96 flex flex-col gap-3">
           <div className="rounded border border-slate-800 p-3 bg-slate-900">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm text-slate-400">Split tolovlar</div>
+              <div className="text-sm text-slate-400">{t('pay.split')}</div>
               <button
                 type="button"
                 className="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-600"
                 onClick={addPaymentRow}
               >
-                + Qator
+                {t('pay.addRow')}
               </button>
             </div>
 
@@ -498,7 +512,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                     className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-xs"
                     onClick={() => removePaymentRow(r.id)}
                     disabled={paymentRows.length === 1}
-                    title={`Qator ${idx + 1}`}
+                    title={`Row ${idx + 1}`}
                   >
                     x
                   </button>
@@ -507,7 +521,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             </div>
 
             <div className="mt-2 text-xs text-slate-400">
-              Jami tolov: {payTotalView} / Savdo jami: {grand}
+              {t('pay.total')}: {payTotalView} / {t('pay.grand')}: {grand}
             </div>
 
             <div className="mt-2 flex gap-2 flex-wrap">
@@ -520,9 +534,9 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                     payMode === m ? 'bg-emerald-700 border-emerald-500' : 'bg-slate-800 border-slate-600'
                   }`}
                 >
-                  {m === 'CASH' && 'F1 Naqd'}
-                  {m === 'CARD' && 'F2 Karta'}
-                  {m === 'DEBT' && 'F3 Nasiya'}
+                  {m === 'CASH' && `F1 ${t('pay.mode.cash')}`}
+                  {m === 'CARD' && `F2 ${t('pay.mode.card')}`}
+                  {m === 'DEBT' && `F3 ${t('pay.mode.debt')}`}
                 </button>
               ))}
             </div>
@@ -530,16 +544,16 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
           {paymentRows.some((p) => p.method === 'DEBT' && parseSom(p.amount).gt(0)) && (
             <div className="rounded border border-slate-800 p-3 bg-slate-900 space-y-2">
-              <div className="text-sm text-slate-400">Mijoz</div>
+              <div className="text-sm text-slate-400">{t('pay.customer')}</div>
               <input
                 className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700 text-sm"
-                placeholder="Ism"
+                placeholder={t('pay.customerName')}
                 value={customerName}
                 onChange={(e) => setCustomer(e.target.value, customerPhone)}
               />
               <input
                 className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700 text-sm"
-                placeholder="Telefon (998...)"
+                placeholder={t('pay.customerPhone')}
                 value={customerPhone}
                 onChange={(e) => setCustomer(customerName, e.target.value)}
               />
@@ -547,7 +561,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
           )}
 
           <div className="rounded border border-slate-800 p-4 bg-slate-900">
-            <div className="text-slate-400 text-sm">Jami</div>
+            <div className="text-slate-400 text-sm">{t('summary.total')}</div>
             <div className="text-3xl font-bold mt-1">{grand}</div>
             <button
               type="button"
@@ -555,7 +569,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
               className="mt-4 w-full py-3 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 font-semibold"
               onClick={() => void doComplete()}
             >
-              {completing ? 'Saqlanmoqda...' : 'Savdoni yakunlash (Enter)'}
+              {completing ? t('summary.saving') : t('summary.complete')}
             </button>
           </div>
         </aside>
