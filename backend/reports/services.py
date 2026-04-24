@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
 from django.utils import timezone
 
+from catalog.models import ProductVariant
 from debt.models import Debt
-from sales.models import Payment, Sale
+from sales.models import Payment, Sale, SaleLine
 
 ROUND_UNIT = Decimal("1")
 
@@ -65,6 +66,57 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
     open_debt_count = open_debts.count()
     open_debt_total = q_money(open_debts.aggregate(total=Sum("remaining_amount"))["total"])
 
+    inventory_qs = ProductVariant.objects.filter(deleted_at__isnull=True)
+    inventory_items = inventory_qs.aggregate(total=Sum("stock_qty"))["total"] or 0
+    inventory_purchase_value = q_money(
+        inventory_qs.aggregate(
+            total=Sum(
+                ExpressionWrapper(
+                    F("stock_qty") * F("purchase_price"),
+                    output_field=DecimalField(max_digits=16, decimal_places=2),
+                )
+            )
+        )["total"]
+    )
+    inventory_sale_value = q_money(
+        inventory_qs.aggregate(
+            total=Sum(
+                ExpressionWrapper(
+                    F("stock_qty") * F("list_price"),
+                    output_field=DecimalField(max_digits=16, decimal_places=2),
+                )
+            )
+        )["total"]
+    )
+
+    sold_lines = SaleLine.objects.select_related("variant__product__category", "sale").filter(
+        sale__status=Sale.Status.COMPLETED
+    )
+    if from_date:
+        sold_lines = sold_lines.filter(sale__completed_at__date__gte=from_date)
+    if to_date:
+        sold_lines = sold_lines.filter(sale__completed_at__date__lte=to_date)
+    top_products = (
+        sold_lines.values("variant__product__name_uz")
+        .annotate(total_qty=Sum("qty"), total_sales=Sum("line_total"))
+        .order_by("-total_qty")[:5]
+    )
+    top_brands = (
+        sold_lines.values("variant__product__category__name_uz")
+        .annotate(total_qty=Sum("qty"), total_sales=Sum("line_total"))
+        .order_by("-total_qty")[:5]
+    )
+    low_products = (
+        sold_lines.values("variant__product__name_uz")
+        .annotate(total_qty=Sum("qty"))
+        .order_by("total_qty")[:5]
+    )
+    low_brands = (
+        sold_lines.values("variant__product__category__name_uz")
+        .annotate(total_qty=Sum("qty"))
+        .order_by("total_qty")[:5]
+    )
+
     return {
         "sales_count": sales_count,
         "sales_amount": sales_amount,
@@ -88,5 +140,34 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
                 "sales_amount": q_money(row["total_amount"]),
             }
             for row in top_cashiers
+        ],
+        "inventory_items": int(inventory_items),
+        "inventory_purchase_value": inventory_purchase_value,
+        "inventory_sale_value": inventory_sale_value,
+        "turnover_amount": sales_amount,
+        "net_profit": gross_profit,
+        "top_products": [
+            {
+                "name": row["variant__product__name_uz"] or "-",
+                "qty": int(row["total_qty"] or 0),
+                "sales_amount": q_money(row["total_sales"]),
+            }
+            for row in top_products
+        ],
+        "top_brands": [
+            {
+                "name": row["variant__product__category__name_uz"] or "-",
+                "qty": int(row["total_qty"] or 0),
+                "sales_amount": q_money(row["total_sales"]),
+            }
+            for row in top_brands
+        ],
+        "low_products": [
+            {"name": row["variant__product__name_uz"] or "-", "qty": int(row["total_qty"] or 0)}
+            for row in low_products
+        ],
+        "low_brands": [
+            {"name": row["variant__product__category__name_uz"] or "-", "qty": int(row["total_qty"] or 0)}
+            for row in low_brands
         ],
     }

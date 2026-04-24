@@ -26,8 +26,21 @@ class DashboardSummaryView(APIView):
                     "total_discounts": str(m["total_discounts"]),
                     "open_debt_count": m["open_debt_count"],
                     "open_debt_total": str(m["open_debt_total"]),
+                    "cash_total": str(m["cash_total"]),
+                    "card_total": str(m["card_total"]),
+                    "debt_total": str(m["debt_total"]),
+                    "returned_total": str(m["returned_total"]),
+                    "inventory_items": m["inventory_items"],
+                    "inventory_purchase_value": str(m["inventory_purchase_value"]),
+                    "inventory_sale_value": str(m["inventory_sale_value"]),
+                    "turnover_amount": str(m["turnover_amount"]),
+                    "net_profit": str(m["net_profit"]),
                 },
                 "top_cashiers": m["top_cashiers"],
+                "top_products": m["top_products"],
+                "top_brands": m["top_brands"],
+                "low_products": m["low_products"],
+                "low_brands": m["low_brands"],
             }
         )
 

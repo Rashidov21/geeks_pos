@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
 import { TouchNumpad } from '../components/TouchNumpad'
 import { ActionToast } from '../components/ActionToast'
+import { Pencil, Printer, Power, Trash2, PackagePlus } from 'lucide-react'
 
 const STANDARD_COLOR_VALUES = [
   'std_black',
@@ -48,6 +49,7 @@ export function CatalogPage({
   onPrintStickerQueue,
   onToggleVariant,
   onUpdateVariant,
+  onDeleteVariant,
   onFilter,
   onPage,
 }: {
@@ -75,6 +77,7 @@ export function CatalogPage({
     v: Variant,
     patch: { purchase_price: string; list_price: string },
   ) => Promise<void>
+  onDeleteVariant: (variantId: string) => Promise<void>
   onFilter: (q: string) => void
   onPage: (page: number) => void
 }) {
@@ -372,6 +375,7 @@ export function CatalogPage({
       </div>
       {toast && <ActionToast kind="info" message={toast} />}
       <p className="text-xs text-slate-400">{t('admin.catalog.hint')}</p>
+      <p className="text-xs text-slate-500">{t('admin.catalog.actionsHelp')}</p>
 
       <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -667,25 +671,25 @@ export function CatalogPage({
                   <div className="inline-flex gap-2">
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={() => {
                         setEditing(v)
                         setEditPrice(v.list_price)
                         setEditPurchase(v.purchase_price)
                       }}
                     >
-                      {t('admin.catalog.edit')}
+                      <Pencil className="h-3.5 w-3.5" /> {t('admin.catalog.edit')}
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={() => void addToQueue(v.id)}
                     >
-                      {t('admin.catalog.queueAdd')}
+                      <PackagePlus className="h-3.5 w-3.5" /> {t('admin.catalog.queueAdd')}
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={async () => {
                         try {
                           await onPrintSticker(v.id, 1, '40x30')
@@ -695,11 +699,11 @@ export function CatalogPage({
                         }
                       }}
                     >
-                      {t('admin.catalog.printSticker')}
+                      <Printer className="h-3.5 w-3.5" /> {t('admin.catalog.printSticker')}
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={async () => {
                         try {
                           await onToggleVariant(v)
@@ -710,7 +714,24 @@ export function CatalogPage({
                         }
                       }}
                     >
+                      <Power className="h-3.5 w-3.5" />
                       {v.is_active ? t('admin.catalog.deactivate') : t('admin.catalog.activate')}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded bg-red-900 border border-red-700 inline-flex items-center gap-1"
+                      onClick={async () => {
+                        if (!window.confirm(t('admin.catalog.confirmDelete'))) return
+                        try {
+                          await onDeleteVariant(v.id)
+                          setToast(t('admin.catalog.deleteSuccess'))
+                        } catch (e: unknown) {
+                          const code = (e as Error & { code?: string }).code
+                          setToast(t(`err.${code || 'DELETE_VARIANT_FAILED'}`))
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> {t('admin.catalog.delete')}
                     </button>
                   </div>
                 </td>

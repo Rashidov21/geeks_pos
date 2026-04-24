@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
 import { ActionToast } from '../components/ActionToast'
+import { BarChart3, Package, TrendingDown, TrendingUp } from 'lucide-react'
 
 export function DashboardPage({
   summary,
@@ -70,6 +71,56 @@ export function DashboardPage({
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
           <div className="text-sm text-slate-400">{t('admin.dashboard.totalDebt')}</div>
           <div className="text-2xl mt-1">{formatMoney(totals?.open_debt_total)}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <Package className="h-4 w-4" /> {t('admin.dashboard.inventoryItems')}
+          </div>
+          <div className="text-2xl mt-1">{totals?.inventory_items ?? 0}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400">{t('admin.dashboard.inventoryValue')}</div>
+          <div className="text-2xl mt-1">{formatMoney(totals?.inventory_sale_value)}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" /> {t('admin.dashboard.turnover')}
+          </div>
+          <div className="text-2xl mt-1">{formatMoney(totals?.turnover_amount)}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" /> {t('admin.dashboard.netProfit')}
+          </div>
+          <div className="text-2xl mt-1">{formatMoney(totals?.net_profit)}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded border border-slate-700 bg-slate-900 p-3">
+          <h3 className="font-medium mb-2 inline-flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" /> {t('admin.dashboard.topProducts')}
+          </h3>
+          <ul className="text-sm space-y-1">
+            {(summary?.top_products ?? []).map((p) => (
+              <li key={p.name} className="flex justify-between">
+                <span>{p.name}</span>
+                <span>{p.qty}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-3">
+          <h3 className="font-medium mb-2 inline-flex items-center gap-2">
+            <TrendingDown className="h-4 w-4" /> {t('admin.dashboard.lowProducts')}
+          </h3>
+          <ul className="text-sm space-y-1">
+            {(summary?.low_products ?? []).map((p) => (
+              <li key={p.name} className="flex justify-between">
+                <span>{p.name}</span>
+                <span>{p.qty}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
       <div className="rounded border border-slate-700 bg-slate-900 p-3">

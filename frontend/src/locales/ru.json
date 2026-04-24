@@ -98,8 +98,15 @@
   "admin.dashboard.avgCheck": "Средний чек",
   "admin.dashboard.grossProfit": "Чистая прибыль",
   "admin.dashboard.totalDiscounts": "Сумма скидок",
+  "admin.dashboard.inventoryItems": "Количество товаров на складе",
+  "admin.dashboard.inventoryValue": "Складская стоимость",
+  "admin.dashboard.turnover": "Оборот",
+  "admin.dashboard.netProfit": "Чистая прибыль",
+  "admin.dashboard.topProducts": "Самые продаваемые товары",
+  "admin.dashboard.lowProducts": "Слабо продаваемые товары",
   "admin.catalog.title": "Каталог",
   "admin.catalog.hint": "Управляйте вариантами через поиск и фильтры.",
+  "admin.catalog.actionsHelp": "Кнопки действий: редактирование, добавление в очередь, печать стикера, актив/неактив, удаление.",
   "admin.catalog.searchPlaceholder": "Поиск по штрих-коду / товару / размеру / цвету",
   "admin.catalog.showDeleted": "Показывать удаленные/неактивные",
   "admin.catalog.product": "Товар",
@@ -196,7 +203,7 @@
   "admin.sales.title": "История продаж",
   "admin.sales.hint": "Используйте диапазон дат или поиск для фильтрации.",
   "admin.sales.searchPlaceholder": "Поиск по Sale ID / кассиру / статусу",
-  "admin.sales.exportCsv": "Экспорт CSV",
+  "admin.sales.exportCsv": "Экспорт Excel",
   "admin.sales.exportSuccess": "Загрузка CSV началась",
   "admin.sales.saleId": "ID продажи",
   "admin.sales.cashier": "Кассир",
@@ -328,6 +335,9 @@
   "admin.debts.noDueDate": "Не указан",
   "admin.debts.overdue": "Просрочен",
   "admin.sales.saleNo": "Номер продажи",
+  "admin.catalog.delete": "Удалить",
+  "admin.catalog.confirmDelete": "Подтвердить удаление варианта?",
+  "admin.catalog.deleteSuccess": "Вариант удален",
   "status.OPEN": "Открыт",
   "status.APPLIED": "Применен",
   "status.PAID": "Оплачен",
@@ -366,4 +376,5 @@
   ,"err.FETCH_STOCK_EVENTS_FAILED": "Не удалось загрузить синхронизацию остатков."
   ,"err.RETURN_FAILED": "Не удалось выполнить возврат."
   ,"err.PRINT_FAILED": "Ошибка печати."
+  ,"err.DELETE_VARIANT_FAILED": "Не удалось удалить вариант."
 }

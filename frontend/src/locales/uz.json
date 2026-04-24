@@ -98,8 +98,15 @@
   "admin.dashboard.avgCheck": "O'rtacha chek",
   "admin.dashboard.grossProfit": "Sof foyda",
   "admin.dashboard.totalDiscounts": "Jami chegirmalar",
+  "admin.dashboard.inventoryItems": "Ombordagi tovar soni",
+  "admin.dashboard.inventoryValue": "Ombor qiymati",
+  "admin.dashboard.turnover": "Aylanma summa",
+  "admin.dashboard.netProfit": "Sof foyda",
+  "admin.dashboard.topProducts": "Ko'p sotilayotgan tovarlar",
+  "admin.dashboard.lowProducts": "Kam sotilayotgan tovarlar",
   "admin.catalog.title": "Katalog",
   "admin.catalog.hint": "Qidiruv yoki filtrlash orqali variantlarni boshqaring.",
+  "admin.catalog.actionsHelp": "Har bir tugma: tahrirlash, navbatga qo'shish, stiker chop etish, aktiv/noaktiv, o'chirish amallari uchun.",
   "admin.catalog.searchPlaceholder": "Barcode / tovar / o'lcham / rang qidirish",
   "admin.catalog.showDeleted": "O'chirilgan/noaktivlarni ko'rsatish",
   "admin.catalog.product": "Tovar",
@@ -196,7 +203,7 @@
   "admin.sales.title": "Sotuvlar tarixi",
   "admin.sales.hint": "Sana yoki qidiruv filtri bilan natijani toraytiring.",
   "admin.sales.searchPlaceholder": "Sale ID / kassir / status bo'yicha qidirish",
-  "admin.sales.exportCsv": "CSV eksport",
+  "admin.sales.exportCsv": "Excel eksport",
   "admin.sales.exportSuccess": "CSV yuklab olish boshlandi",
   "admin.sales.saleId": "Savdo ID",
   "admin.sales.cashier": "Kassir",
@@ -328,6 +335,9 @@
   "admin.debts.noDueDate": "Belgilanmagan",
   "admin.debts.overdue": "Muddati o'tgan",
   "admin.sales.saleNo": "Savdo raqami",
+  "admin.catalog.delete": "O'chirish",
+  "admin.catalog.confirmDelete": "Variantni o'chirishni tasdiqlaysizmi?",
+  "admin.catalog.deleteSuccess": "Variant o'chirildi",
   "status.OPEN": "Ochiq",
   "status.APPLIED": "Qo'llangan",
   "status.PAID": "To'langan",
@@ -366,4 +376,5 @@
   ,"err.FETCH_STOCK_EVENTS_FAILED": "Stock sinxronizatsiyasi yuklanmadi."
   ,"err.RETURN_FAILED": "Qaytarish bajarilmadi."
   ,"err.PRINT_FAILED": "Chop etishda xatolik."
+  ,"err.DELETE_VARIANT_FAILED": "Variantni o'chirib bo'lmadi."
 }

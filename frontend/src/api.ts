@@ -492,12 +492,25 @@ export type DashboardSummary = {
     total_discounts: string
     open_debt_count: number
     open_debt_total: string
+    cash_total?: string
+    card_total?: string
+    debt_total?: string
+    returned_total?: string
+    inventory_items?: number
+    inventory_purchase_value?: string
+    inventory_sale_value?: string
+    turnover_amount?: string
+    net_profit?: string
   }
   top_cashiers: Array<{
     cashier: string
     sales_count: number
     sales_amount: string
   }>
+  top_products?: Array<{ name: string; qty: number; sales_amount?: string }>
+  top_brands?: Array<{ name: string; qty: number; sales_amount?: string }>
+  low_products?: Array<{ name: string; qty: number }>
+  low_brands?: Array<{ name: string; qty: number }>
 }
 
 export async function fetchSalesHistory(params?: {

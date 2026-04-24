@@ -17,9 +17,12 @@ export function BotsPage({
   const [form, setForm] = useState<IntegrationSettings>({
     telegram_bot_token: settings?.telegram_bot_token ?? '',
     telegram_chat_id: settings?.telegram_chat_id ?? '',
+    whatsapp_provider: settings?.whatsapp_provider ?? 'GREEN_API',
     whatsapp_api_base: settings?.whatsapp_api_base ?? '',
     whatsapp_api_token: settings?.whatsapp_api_token ?? '',
     whatsapp_sender: settings?.whatsapp_sender ?? '',
+    greenapi_instance_id: settings?.greenapi_instance_id ?? '',
+    greenapi_api_token_instance: settings?.greenapi_api_token_instance ?? '',
   })
 
   async function runAction(fn: () => Promise<unknown>, ok: string) {
