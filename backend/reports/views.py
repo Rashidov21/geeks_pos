@@ -1,6 +1,8 @@
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from core.permissions import IsAdminOrOwner
 from .services import sales_metrics
@@ -12,6 +14,23 @@ class DashboardSummaryView(APIView):
     def get(self, request):
         from_date = request.query_params.get("from")
         to_date = request.query_params.get("to")
+        year = (request.query_params.get("year") or "").strip()
+        if year:
+            try:
+                y = int(year)
+                from_date = f"{y:04d}-01-01"
+                to_date = f"{y:04d}-12-31"
+            except ValueError:
+                return Response({"code": "INVALID_YEAR", "detail": "year must be numeric"}, status=400)
+        if not from_date and not to_date:
+            today = timezone.localdate()
+            first = today.replace(day=1)
+            from_date = first.isoformat()
+            to_date = today.isoformat()
+        if from_date and parse_date(from_date) is None:
+            return Response({"code": "INVALID_DATE_FROM", "detail": "from must be YYYY-MM-DD"}, status=400)
+        if to_date and parse_date(to_date) is None:
+            return Response({"code": "INVALID_DATE_TO", "detail": "to must be YYYY-MM-DD"}, status=400)
         m = sales_metrics(from_date=from_date, to_date=to_date)
 
         return Response(
@@ -41,6 +60,7 @@ class DashboardSummaryView(APIView):
                 "top_brands": m["top_brands"],
                 "low_products": m["low_products"],
                 "low_brands": m["low_brands"],
+                "range": {"from": from_date, "to": to_date, "year": year or None},
             }
         )
 

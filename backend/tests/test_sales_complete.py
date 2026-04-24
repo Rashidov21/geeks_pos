@@ -158,8 +158,10 @@ def test_payment_mismatch_raises(cashier, variant):
 
 
 @pytest.mark.django_db
-def test_barcode_format_prd_prefix(variant):
-    assert variant.barcode.startswith("PRD-")
+def test_barcode_format_numeric_prefix(variant):
+    assert variant.barcode.isdigit()
+    assert len(variant.barcode) == 8
+    assert int(variant.barcode) >= 20000001
 
 
 @pytest.mark.django_db

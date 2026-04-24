@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="sale",
             name="public_sale_no",
-            field=models.CharField(blank=True, db_index=True, default="", max_length=32, unique=True),
+            field=models.CharField(blank=True, db_index=True, default="", max_length=32),
         ),
         migrations.RunPython(seed_public_sale_no, migrations.RunPython.noop),
     ]

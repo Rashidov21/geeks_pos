@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Calculator, LogOut, ScanLine, Printer, LayoutGrid } from 'lucide-react'
+import { Calculator, LogOut, ScanLine, Printer, LayoutGrid, Lock } from 'lucide-react'
 import Decimal from 'decimal.js'
 import {
   completeSale,
@@ -11,6 +11,8 @@ import {
   fetchPosVariantSearch,
   fetchPosVariantsByProduct,
   fetchStockEvents,
+  fetchMe,
+  loginWithPin,
   logout,
   updatePosVariantPrice,
   type PosVariant,
@@ -164,6 +166,11 @@ export function PosPage({
   const [searchResults, setSearchResults] = useState<PosVariant[]>([])
   const [searchBusy, setSearchBusy] = useState(false)
   const [stockMatrix, setStockMatrix] = useState<null | StockMatrixOpen>(null)
+  const [locked, setLocked] = useState(false)
+  const [lockTimeoutMinutes, setLockTimeoutMinutes] = useState(5)
+  const [unlockPin, setUnlockPin] = useState('')
+  const [unlockErr, setUnlockErr] = useState<string | null>(null)
+  const [meUser, setMeUser] = useState('')
   const [matrixRows, setMatrixRows] = useState<PosVariant[]>([])
   const [matrixBusy, setMatrixBusy] = useState(false)
 
@@ -197,6 +204,17 @@ export function PosPage({
     { id: crypto.randomUUID(), method: 'CASH', amount: '0' },
   ])
   const [activePayId, setActivePayId] = useState<string | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const me = await fetchMe()
+        setMeUser(me.username)
+      } catch {
+        setMeUser('')
+      }
+    })()
+  }, [])
 
   const safeRefocus = useCallback(() => {
     requestAnimationFrame(() => {
@@ -265,15 +283,33 @@ export function PosPage({
         setScannerSuffix(normalizeScannerToken(cfg.scanner_suffix || '\t') || '\t')
         setAutoPrintOnSale(cfg.auto_print_on_sale !== false)
         setReceiptPrinterName((cfg.receipt_printer_name || '').trim())
+        setLockTimeoutMinutes(Math.max(1, Number(cfg.lock_timeout_minutes || 5)))
       } catch {
         setScannerPrefix('')
         setScannerSuffix('\t')
         setScannerMode('keyboard')
         setAutoPrintOnSale(true)
         setReceiptPrinterName('')
+        setLockTimeoutMinutes(5)
       }
     })()
   }, [])
+
+  useEffect(() => {
+    if (locked) return
+    const timeoutMs = Math.max(1, lockTimeoutMinutes) * 60 * 1000
+    let timer = window.setTimeout(() => setLocked(true), timeoutMs)
+    const reset = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setLocked(true), timeoutMs)
+    }
+    const events: Array<keyof WindowEventMap> = ['mousemove', 'mousedown', 'keydown', 'touchstart']
+    for (const e of events) window.addEventListener(e, reset, { passive: true })
+    return () => {
+      window.clearTimeout(timer)
+      for (const e of events) window.removeEventListener(e, reset as EventListener)
+    }
+  }, [locked, lockTimeoutMinutes])
 
   useEffect(() => {
     let since: string | undefined
@@ -618,6 +654,18 @@ export function PosPage({
               {t('header.reprint')}
             </button>
           )}
+          <button
+            type="button"
+            className="touch-btn inline-flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-slate-200"
+            onClick={() => {
+              setLocked(true)
+              setUnlockPin('')
+              setUnlockErr(null)
+            }}
+          >
+            <Lock className="h-4 w-4" aria-hidden />
+            {t('header.lock', { defaultValue: 'Lock' })}
+          </button>
           <button
             type="button"
             className="touch-btn inline-flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-slate-200"
@@ -1170,6 +1218,38 @@ export function PosPage({
             {t('lang.ru')}
           </button>
         </footer>
+      )}
+      {locked && (
+        <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-lg font-semibold">{t('header.lock', { defaultValue: 'Locked' })}</h3>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={unlockPin}
+              onChange={(e) => setUnlockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder={t('auth.pinPlaceholder', { defaultValue: '1234' })}
+            />
+            {unlockErr && <p className="text-sm text-red-400">{unlockErr}</p>}
+            <button
+              type="button"
+              className="w-full px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+              onClick={async () => {
+                try {
+                  if (!meUser) throw new Error('INVALID_PIN')
+                  await loginWithPin(meUser, unlockPin)
+                  setLocked(false)
+                } catch {
+                  setUnlockErr(t('err.INVALID_PIN'))
+                }
+              }}
+            >
+              {t('admin.common.unlock', { defaultValue: 'Unlock' })}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

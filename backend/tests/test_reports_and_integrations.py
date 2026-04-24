@@ -1,5 +1,7 @@
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
+from datetime import timedelta
 
 from debt.models import Customer
 from catalog.models import Category, Color, Product, ProductVariant, Size
@@ -224,4 +226,43 @@ def test_sales_metrics_parity_cash_card_debt(client):
     assert str(m["cash_total"]) == "100000"
     assert str(m["card_total"]) == "30000"
     assert str(m["debt_total"]) == "20000"
+
+
+@pytest.mark.django_db
+def test_dashboard_summary_defaults_to_current_month(client):
+    owner = _mk_user("owner_filter_default", "OWNER")
+    cashier = _mk_user("cashier_filter_default", "CASHIER")
+    variant = _mk_variant()
+    client.force_login(cashier)
+    r = client.post(
+        "/api/sales/complete/",
+        data={
+            "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+            "payments": [{"method": "CASH", "amount": "150000"}],
+            "expected_grand_total": "150000",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="filter-default-old-month",
+    )
+    assert r.status_code == 200
+    sale = Sale.objects.get(idempotency_key="filter-default-old-month")
+    last_month = timezone.now() - timedelta(days=35)
+    Sale.objects.filter(id=sale.id).update(completed_at=last_month)
+
+    client.force_login(owner)
+    out = client.get("/api/reports/summary/")
+    assert out.status_code == 200
+    body = out.json()
+    assert body["totals"]["sales_count"] == 0
+    assert body["range"]["from"] is not None
+    assert body["range"]["to"] is not None
+
+
+@pytest.mark.django_db
+def test_dashboard_summary_year_filter(client):
+    owner = _mk_user("owner_filter_year", "OWNER")
+    client.force_login(owner)
+    out = client.get("/api/reports/summary/?year=2026")
+    assert out.status_code == 200
+    assert out.json()["range"]["year"] == "2026"
 

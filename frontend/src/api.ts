@@ -70,6 +70,38 @@ export async function login(username: string, password: string): Promise<void> {
   await r.json().catch(() => ({}))
 }
 
+export type PinUser = { username: string; display_name: string; role: UserRole; pin_enabled: boolean }
+
+export async function fetchPinUsers(): Promise<PinUser[]> {
+  const r = await fetch(`${API}/api/auth/pin-users/`, { credentials: 'include' })
+  if (!r.ok) throw await parseErrorResponse(r, 'FETCH_PIN_USERS_FAILED')
+  const j = (await r.json()) as { results?: PinUser[] }
+  return Array.isArray(j.results) ? j.results : []
+}
+
+export async function loginWithPin(username: string, pin: string): Promise<void> {
+  const csrf = await fetchCsrf()
+  const r = await fetch(`${API}/api/auth/pin-login/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify({ username, pin }),
+  })
+  if (!r.ok) throw await parseErrorResponse(r, 'INVALID_PIN')
+  await r.json().catch(() => ({}))
+}
+
+export async function setUserPin(username: string, pin: string, enabled = true): Promise<void> {
+  const csrf = await fetchCsrf()
+  const r = await fetch(`${API}/api/auth/set-pin/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify({ username, pin, enabled }),
+  })
+  if (!r.ok) throw await parseErrorResponse(r, 'SET_PIN_FAILED')
+}
+
 export async function logout(): Promise<void> {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   await fetch(`${API}/api/auth/logout/`, {
@@ -261,6 +293,29 @@ export async function createCategory(body: { name_uz: string; name_ru: string; s
   return j as Category
 }
 
+export async function updateCategory(categoryId: string, body: { name_uz: string; name_ru: string; sort_order?: number }) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/catalog/categories/${categoryId}/`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify(body),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new AppError(j.code || 'UPDATE_CATEGORY_FAILED', j.detail)
+  return j as Category
+}
+
+export async function deleteCategory(categoryId: string) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/catalog/categories/${categoryId}/`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  if (!r.ok) throw new AppError('DELETE_CATEGORY_FAILED')
+}
+
 export async function fetchProducts(params?: {
   includeDeleted?: boolean
   q?: string
@@ -337,6 +392,29 @@ export async function createSize(body: {
   return j as Size
 }
 
+export async function updateSize(sizeId: string, body: { value?: string; label_uz?: string; label_ru?: string; sort_order?: number }) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/catalog/sizes/${sizeId}/`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify(body),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new AppError(j.code || 'UPDATE_SIZE_FAILED', j.detail)
+  return j as Size
+}
+
+export async function deleteSize(sizeId: string) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/catalog/sizes/${sizeId}/`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  if (!r.ok) throw new AppError('DELETE_SIZE_FAILED')
+}
+
 export async function fetchColors(): Promise<Color[]> {
   const r = await fetch(`${API}/api/catalog/colors/`, { credentials: 'include' })
   if (!r.ok) throw new Error('FETCH_COLORS_FAILED')
@@ -359,6 +437,29 @@ export async function createColor(body: {
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new AppError(j.code || 'CREATE_COLOR_FAILED', j.detail)
   return j as Color
+}
+
+export async function updateColor(colorId: string, body: { value?: string; label_uz?: string; label_ru?: string; sort_order?: number }) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/catalog/colors/${colorId}/`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify(body),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new AppError(j.code || 'UPDATE_COLOR_FAILED', j.detail)
+  return j as Color
+}
+
+export async function deleteColor(colorId: string) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/catalog/colors/${colorId}/`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  if (!r.ok) throw new AppError('DELETE_COLOR_FAILED')
 }
 
 export type BulkGridCell = {
@@ -511,6 +612,7 @@ export type DashboardSummary = {
   top_brands?: Array<{ name: string; qty: number; sales_amount?: string }>
   low_products?: Array<{ name: string; qty: number }>
   low_brands?: Array<{ name: string; qty: number }>
+  range?: { from?: string; to?: string; year?: string | null }
 }
 
 export async function fetchSalesHistory(params?: {
@@ -530,10 +632,11 @@ export async function fetchSalesHistory(params?: {
   return r.json()
 }
 
-export async function fetchDashboardSummary(params?: { from?: string; to?: string }) {
+export async function fetchDashboardSummary(params?: { from?: string; to?: string; year?: string }) {
   const q = new URLSearchParams()
   if (params?.from) q.set('from', params.from)
   if (params?.to) q.set('to', params.to)
+  if (params?.year) q.set('year', params.year)
   const qs = q.toString() ? `?${q.toString()}` : ''
   const r = await fetch(`${API}/api/reports/summary/${qs}`, { credentials: 'include' })
   if (!r.ok) throw await parseErrorResponse(r, 'FETCH_DASHBOARD_FAILED')
@@ -584,6 +687,7 @@ export type StoreSettings = {
   scanner_mode: 'keyboard' | 'serial'
   scanner_prefix: string
   scanner_suffix: string
+  lock_timeout_minutes?: number
   logo_url?: string | null
 }
 
@@ -598,6 +702,7 @@ export type HardwareConfig = Pick<
   | 'scanner_mode'
   | 'scanner_prefix'
   | 'scanner_suffix'
+  | 'lock_timeout_minutes'
 >
 
 export type IntegrationSettings = {
@@ -609,6 +714,7 @@ export type IntegrationSettings = {
   whatsapp_sender: string
   greenapi_instance_id: string
   greenapi_api_token_instance: string
+  primary_report_channel?: 'telegram' | 'whatsapp' | 'both'
   updated_at?: string
 }
 
@@ -633,6 +739,7 @@ export async function updateStoreSettings(data: {
   scanner_mode: 'keyboard' | 'serial'
   scanner_prefix: string
   scanner_suffix: string
+  lock_timeout_minutes?: number
   logo?: File | null
 }) {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
@@ -651,6 +758,7 @@ export async function updateStoreSettings(data: {
   fd.append('scanner_mode', data.scanner_mode)
   fd.append('scanner_prefix', data.scanner_prefix)
   fd.append('scanner_suffix', data.scanner_suffix)
+  fd.append('lock_timeout_minutes', String(Math.max(1, Number(data.lock_timeout_minutes || 5))))
   if (data.logo) fd.append('logo', data.logo)
   const r = await fetch(`${API}/api/printing/settings/`, {
     method: 'PUT',

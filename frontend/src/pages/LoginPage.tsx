@@ -1,21 +1,33 @@
-﻿import { useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { fetchCsrf, login } from '../api'
+import { fetchPinUsers, loginWithPin } from '../api'
 
 export function LoginPage({ onDone }: { onDone: () => void }) {
   const { t, i18n } = useTranslation()
-  const [u, setU] = useState('cashier')
-  const [p, setP] = useState('pass12345')
+  const [users, setUsers] = useState<Array<{ username: string; display_name: string; role: string; pin_enabled: boolean }>>([])
+  const [u, setU] = useState('')
+  const [p, setP] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const rows = await fetchPinUsers()
+        setUsers(rows)
+        setU(rows[0]?.username || '')
+      } catch {
+        setUsers([])
+      }
+    })()
+  }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setErr(null)
     setBusy(true)
     try {
-      await fetchCsrf()
-      await login(u, p)
+      await loginWithPin(u, p)
       onDone()
     } catch (ex: unknown) {
       const code = (ex as Error & { code?: string }).code
@@ -57,24 +69,30 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         </div>
         <h1 className="text-xl font-semibold text-center">{t('app.title')}</h1>
         <label className="block text-sm">
-          {t('auth.username')}
-          <input
+          {t('auth.userSelect', { defaultValue: t('auth.username') })}
+          <select
             className="touch-btn mt-1 w-full min-h-14 rounded-xl bg-slate-950 border border-slate-600 px-4 py-3 text-base"
             value={u}
             onChange={(e) => setU(e.target.value)}
-            autoComplete="username"
-            placeholder={t('auth.usernamePlaceholder')}
-          />
+          >
+            {users.map((row) => (
+              <option key={row.username} value={row.username}>
+                {row.display_name} ({row.role})
+              </option>
+            ))}
+          </select>
         </label>
         <label className="block text-sm">
-          {t('auth.password')}
+          {t('auth.pin', { defaultValue: 'PIN' })}
           <input
             type="password"
+            maxLength={4}
+            inputMode="numeric"
             className="touch-btn mt-1 w-full min-h-14 rounded-xl bg-slate-950 border border-slate-600 px-4 py-3 text-base"
             value={p}
-            onChange={(e) => setP(e.target.value)}
+            onChange={(e) => setP(e.target.value.replace(/\D/g, '').slice(0, 4))}
             autoComplete="current-password"
-            placeholder={t('auth.passwordPlaceholder')}
+            placeholder={t('auth.pinPlaceholder', { defaultValue: '1234' })}
           />
         </label>
         {err && <p className="text-red-400 text-sm">{err}</p>}
@@ -85,7 +103,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         >
           {busy ? t('auth.logging') : t('auth.login')}
         </button>
-        <p className="text-xs text-slate-400 text-center">{t('auth.demo')}</p>
+        <p className="text-xs text-slate-400 text-center">{t('auth.pinHint', { defaultValue: '4 xonali PIN kiriting' })}</p>
       </form>
     </div>
   )

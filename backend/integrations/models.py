@@ -7,6 +7,10 @@ class IntegrationSettings(models.Model):
     class WhatsAppProvider(models.TextChoices):
         GREEN_API = "GREEN_API", "GreenAPI"
         CUSTOM = "CUSTOM", "Custom API"
+    class PrimaryReportChannel(models.TextChoices):
+        TELEGRAM = "telegram", "Telegram"
+        WHATSAPP = "whatsapp", "WhatsApp"
+        BOTH = "both", "Both"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     telegram_bot_token = models.CharField(max_length=255, blank=True, default="")
@@ -19,6 +23,9 @@ class IntegrationSettings(models.Model):
     )
     greenapi_instance_id = models.CharField(max_length=64, blank=True, default="")
     greenapi_api_token_instance = models.CharField(max_length=255, blank=True, default="")
+    primary_report_channel = models.CharField(
+        max_length=16, choices=PrimaryReportChannel.choices, default=PrimaryReportChannel.BOTH
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

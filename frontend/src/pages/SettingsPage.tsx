@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  fetchPinUsers,
+  setUserPin,
   testLabelPrintPayload,
   testReceiptPrintPayload,
   type IntegrationSettings,
+  type PinUser,
   type StocktakeSession,
   type StoreSettings,
 } from '../api'
@@ -42,6 +45,7 @@ export function SettingsPage({
     scanner_mode: 'keyboard' | 'serial'
     scanner_prefix: string
     scanner_suffix: string
+    lock_timeout_minutes?: number
     logo?: File | null
   }) => Promise<void>
   onSaveIntegrations: (data: IntegrationSettings) => Promise<void>
@@ -55,7 +59,7 @@ export function SettingsPage({
   canManageInventory: boolean
 }) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'store' | 'bots'>('store')
+  const [activeTab, setActiveTab] = useState<'store' | 'bots' | 'security'>('store')
   const [actionToast, setActionToast] = useState<{
     kind: 'ok' | 'err'
     message: string
@@ -82,7 +86,10 @@ export function SettingsPage({
     scanner_mode: settings?.scanner_mode ?? 'keyboard',
     scanner_prefix: settings?.scanner_prefix ?? '',
     scanner_suffix: settings?.scanner_suffix ?? '\t',
+    lock_timeout_minutes: settings?.lock_timeout_minutes ?? 5,
   })
+  const [pinUsers, setPinUsers] = useState<PinUser[]>([])
+  const [pinDrafts, setPinDrafts] = useState<Record<string, string>>({})
   const [printerOptions, setPrinterOptions] = useState<string[]>([])
   const [scannerTest, setScannerTest] = useState('')
   const [scannerTestOk, setScannerTestOk] = useState(false)
@@ -96,6 +103,7 @@ export function SettingsPage({
     whatsapp_sender: integrations?.whatsapp_sender ?? '',
     greenapi_instance_id: integrations?.greenapi_instance_id ?? '',
     greenapi_api_token_instance: integrations?.greenapi_api_token_instance ?? '',
+    primary_report_channel: integrations?.primary_report_channel ?? 'both',
   })
 
   useEffect(() => {
@@ -114,8 +122,19 @@ export function SettingsPage({
       scanner_mode: settings?.scanner_mode ?? 'keyboard',
       scanner_prefix: settings?.scanner_prefix ?? '',
       scanner_suffix: settings?.scanner_suffix ?? '\t',
+      lock_timeout_minutes: settings?.lock_timeout_minutes ?? 5,
     })
   }, [settings])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setPinUsers(await fetchPinUsers())
+      } catch {
+        setPinUsers([])
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     ;(async () => {
@@ -139,6 +158,7 @@ export function SettingsPage({
       whatsapp_sender: integrations?.whatsapp_sender ?? '',
       greenapi_instance_id: integrations?.greenapi_instance_id ?? '',
       greenapi_api_token_instance: integrations?.greenapi_api_token_instance ?? '',
+      primary_report_channel: integrations?.primary_report_channel ?? 'both',
     })
   }, [integrations])
 
@@ -192,6 +212,13 @@ export function SettingsPage({
           onClick={() => setActiveTab('bots')}
         >
           {t('admin.settings.tabBots')}
+        </button>
+        <button
+          type="button"
+          className={`touch-btn px-5 py-3 text-sm ${activeTab === 'security' ? 'bg-emerald-700' : 'bg-slate-900'}`}
+          onClick={() => setActiveTab('security')}
+        >
+          {t('admin.settings.tabSecurity', { defaultValue: 'Security' })}
         </button>
       </div>
       {actionToast && <ActionToast kind={actionToast.kind} message={actionToast.message} />}
@@ -493,6 +520,19 @@ export function SettingsPage({
               />
               {t('admin.settings.transliterate')}
             </label>
+            <label className="block text-xs text-slate-400">
+              {t('admin.settings.lockTimeout', { defaultValue: 'Auto-lock timeout (minutes)' })}
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={240}
+              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
+              value={String(form.lock_timeout_minutes ?? 5)}
+              onChange={(e) =>
+                setForm({ ...form, lock_timeout_minutes: Math.max(1, Number(e.target.value || 5)) })
+              }
+            />
             <input type="file" accept="image/*" onChange={(e) => setLogo(e.target.files?.[0] ?? null)} />
             <p className="text-xs text-slate-500">{t('admin.settings.logoHint')}</p>
             <button
@@ -507,8 +547,10 @@ export function SettingsPage({
         </>
       )}
       {activeTab === 'bots' && (
-        <div className="space-y-3 max-w-2xl">
-          <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
+        <div className="space-y-4">
+          <p className="text-xs text-slate-400">{t('admin.settings.botsHelp', { defaultValue: 'Telegram/WhatsApp sozlamalarini to‘ldiring va asosiy kanalni tanlang.' })}</p>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-2">
             <h3 className="font-medium">{t('admin.bots.telegram')}</h3>
             <label className="block text-xs text-slate-400">{t('admin.bots.telegramToken')}</label>
             <input
@@ -525,7 +567,7 @@ export function SettingsPage({
               placeholder={t('admin.bots.telegramChatId')}
             />
           </div>
-          <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
+          <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-2">
             <h3 className="font-medium">{t('admin.bots.whatsapp')}</h3>
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappApiBase')}</label>
             <input
@@ -583,6 +625,22 @@ export function SettingsPage({
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_sender: e.target.value }))}
               placeholder={t('admin.bots.whatsappSender')}
             />
+            <label className="block text-xs text-slate-400">{t('admin.bots.primaryChannel', { defaultValue: 'Primary Z-Report channel' })}</label>
+            <select
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.primary_report_channel || 'both'}
+              onChange={(e) =>
+                setIntegrationForm((p) => ({
+                  ...p,
+                  primary_report_channel: e.target.value as 'telegram' | 'whatsapp' | 'both',
+                }))
+              }
+            >
+              <option value="telegram">Telegram</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
           </div>
           <div className="flex gap-2">
             <button
@@ -615,6 +673,77 @@ export function SettingsPage({
             >
               {t('admin.bots.sendZReport')}
             </button>
+          </div>
+        </div>
+      )}
+      {activeTab === 'security' && (
+        <div className="space-y-3">
+          <h3 className="text-lg font-semibold">{t('admin.settings.pinUsers', { defaultValue: 'User PIN management' })}</h3>
+          <div className="rounded border border-slate-700 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-900 text-slate-400">
+                <tr>
+                  <th className="text-left p-2">{t('auth.username')}</th>
+                  <th className="text-left p-2">{t('admin.sales.role', { defaultValue: 'Role' })}</th>
+                  <th className="text-left p-2">{t('auth.pin', { defaultValue: 'PIN' })}</th>
+                  <th className="text-right p-2">{t('admin.catalog.action')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pinUsers.map((u) => (
+                  <tr key={u.username} className="border-t border-slate-800">
+                    <td className="p-2">{u.display_name}</td>
+                    <td className="p-2">{u.role}</td>
+                    <td className="p-2">
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={4}
+                        className="w-24 px-2 py-1 rounded bg-slate-950 border border-slate-700"
+                        value={pinDrafts[u.username] || ''}
+                        onChange={(e) =>
+                          setPinDrafts((p) => ({
+                            ...p,
+                            [u.username]: e.target.value.replace(/\D/g, '').slice(0, 4),
+                          }))
+                        }
+                        placeholder={u.pin_enabled ? '****' : '1234'}
+                      />
+                    </td>
+                    <td className="p-2 text-right">
+                      <div className="inline-flex gap-2">
+                        <button
+                          type="button"
+                          className="px-2 py-1 rounded bg-emerald-700 border border-emerald-500"
+                          onClick={async () => {
+                            const pin = pinDrafts[u.username] || ''
+                            if (pin.length !== 4) return
+                            await runAction(t('admin.settings.saveSettings'), async () => {
+                              await setUserPin(u.username, pin, true)
+                              setPinUsers(await fetchPinUsers())
+                            })
+                          }}
+                        >
+                          {t('admin.common.save')}
+                        </button>
+                        <button
+                          type="button"
+                          className="px-2 py-1 rounded bg-slate-800 border border-slate-700"
+                          onClick={async () => {
+                            await runAction(t('admin.settings.saveSettings'), async () => {
+                              await setUserPin(u.username, '0000', false)
+                              setPinUsers(await fetchPinUsers())
+                            })
+                          }}
+                        >
+                          {t('admin.settings.resetPin', { defaultValue: 'Reset' })}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

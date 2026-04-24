@@ -1,28 +1,35 @@
-"""Backend-generated barcodes: PRD-{first 8 hex of variant UUID}."""
+"""Backend-generated barcodes: numeric 20000001+."""
+
+from django.db.models import Max
 
 
-def default_barcode_from_variant_id(variant_id) -> str:
-    hex_id = str(variant_id).replace("-", "")
-    short = hex_id[:8].upper()
-    return f"PRD-{short}"
+BARCODE_START = 20000001
 
 
-def allocate_unique_barcode(variant, max_attempts: int = 50) -> str:
-    """
-    Assign barcode to variant. Collision (manual barcode) -> append -2, -3, ...
-    """
+def _next_numeric_barcode() -> str:
     from catalog.models import ProductVariant
 
-    base = default_barcode_from_variant_id(variant.id)
-    candidate = base
-    for n in range(max_attempts):
-        exists = (
-            ProductVariant.objects.exclude(pk=variant.pk)
-            .filter(barcode=candidate)
-            .exists()
-        )
+    max_existing = (
+        ProductVariant.objects.filter(barcode__regex=r"^\d{8}$")
+        .annotate()
+        .aggregate(m=Max("barcode"))
+        .get("m")
+    )
+    if not max_existing:
+        return str(BARCODE_START)
+    try:
+        next_num = max(int(max_existing) + 1, BARCODE_START)
+    except ValueError:
+        next_num = BARCODE_START
+    return str(next_num)
+
+
+def allocate_unique_barcode(variant, max_attempts: int = 20) -> str:
+    from catalog.models import ProductVariant
+
+    for _ in range(max_attempts):
+        candidate = _next_numeric_barcode()
+        exists = ProductVariant.objects.exclude(pk=variant.pk).filter(barcode=candidate).exists()
         if not exists:
             return candidate
-        suffix = f"-{n + 2}" if n else "-2"
-        candidate = base + suffix
-    raise RuntimeError("Could not allocate unique barcode")
+    raise RuntimeError("Could not allocate unique numeric barcode")

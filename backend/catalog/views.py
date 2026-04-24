@@ -41,6 +41,28 @@ class ColorListCreate(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
 
+class CategoryDetail(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+    def perform_destroy(self, instance):
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=["deleted_at"])
+
+
+class SizeDetail(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Size.objects.all()
+    serializer_class = SizeSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+
+class ColorDetail(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Color.objects.all()
+    serializer_class = ColorSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+
 class ProductListCreate(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]

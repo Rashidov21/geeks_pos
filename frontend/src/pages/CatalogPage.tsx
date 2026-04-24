@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
 import { TouchNumpad } from '../components/TouchNumpad'
 import { ActionToast } from '../components/ActionToast'
-import { Pencil, Printer, Power, Trash2, PackagePlus } from 'lucide-react'
+import { Pencil, Printer, Power, Trash2, PackagePlus, ScanBarcode } from 'lucide-react'
 
 const STANDARD_COLOR_VALUES = [
   'std_black',
@@ -118,6 +118,8 @@ export function CatalogPage({
   const [defaultList, setDefaultList] = useState('0')
   const [addToPrintQueue, setAddToPrintQueue] = useState(true)
   const [numpadOpen, setNumpadOpen] = useState<null | { field: MatrixField; sizeId: string | 'all' }>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   const shoeSizes = useMemo(() => {
     return sizes
@@ -156,6 +158,14 @@ export function CatalogPage({
     const translated = t(key)
     if (translated !== key) return translated
     return i18n.language.startsWith('ru') ? (c.label_ru || c.label_uz) : c.label_uz
+  }
+
+  function colorChipStyle(value: string) {
+    const v = value.toLowerCase()
+    const map: Record<string, string> = { black: '#111827', white: '#f8fafc', red: '#dc2626', blue: '#2563eb', green: '#16a34a', yellow: '#eab308', gray: '#6b7280', beige: '#d6c2a1' }
+    const bg = map[v] || '#334155'
+    const text = bg === '#f8fafc' || bg === '#d6c2a1' || bg === '#eab308' ? '#0f172a' : '#f8fafc'
+    return { backgroundColor: bg, color: text }
   }
 
   function digitsOnly(v: string): string {
@@ -357,12 +367,15 @@ export function CatalogPage({
           >
             {t('admin.catalog.printQueue')}
           </button>
-          <input
-            className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-sm"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('admin.catalog.searchPlaceholder')}
-          />
+          <div className="relative">
+            <ScanBarcode className="h-4 w-4 text-emerald-400 absolute left-2 top-2" />
+            <input
+              className="pl-8 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-sm"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t('admin.catalog.searchPlaceholder', { defaultValue: 'Qidiruv / barcode: 20000001' })}
+            />
+          </div>
           <label className="text-sm flex items-center gap-2">
             <input
               type="checkbox"
@@ -376,23 +389,31 @@ export function CatalogPage({
       {toast && <ActionToast kind="info" message={toast} />}
       <p className="text-xs text-slate-400">{t('admin.catalog.hint')}</p>
       <p className="text-xs text-slate-500">{t('admin.catalog.actionsHelp')}</p>
+      <p className="text-xs text-emerald-400">{t('admin.catalog.barcodeSearchHelp', { defaultValue: 'Barcode bo‘yicha tez qidirish uchun kod kiriting (masalan 20000001).' })}</p>
 
       <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          className="w-full text-left flex flex-wrap items-center justify-between gap-2"
+          onClick={() => setWizardOpen((p) => !p)}
+        >
           <div className="text-sm font-medium text-slate-200">
             {t('admin.catalog.wizard.progress', { step: wizardStep })}
           </div>
-          <div className="flex gap-2">
-            {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                className={`h-2 w-10 rounded-full ${wizardStep >= s ? 'bg-emerald-500' : 'bg-slate-700'}`}
-              />
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex gap-2">
+              {[1, 2, 3].map((s) => (
+                <div
+                  key={s}
+                  className={`h-2 w-10 rounded-full ${wizardStep >= s ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                />
+              ))}
+            </div>
+            <span className="text-xs text-slate-400">{wizardOpen ? '▲' : '▼'}</span>
           </div>
-        </div>
+        </button>
 
-        {wizardStep === 1 && (
+        {wizardOpen && wizardStep === 1 && (
           <div className="space-y-3">
             <div className="text-base text-slate-100">{t('admin.catalog.wizard.step1Title')}</div>
             <div className="grid md:grid-cols-2 gap-3">
@@ -480,7 +501,7 @@ export function CatalogPage({
           </div>
         )}
 
-        {wizardStep === 2 && (
+        {wizardOpen && wizardStep === 2 && (
           <div className="space-y-4">
             <div className="text-base text-slate-100">{t('admin.catalog.wizard.step2ColorTitle')}</div>
             <p className="text-sm text-slate-400">{t('admin.catalog.wizard.step2ColorHint')}</p>
@@ -491,10 +512,11 @@ export function CatalogPage({
                   <button
                     key={c.id}
                     type="button"
+                    style={colorChipStyle(c.value)}
                     className={`touch-btn min-h-14 rounded-xl border text-sm font-medium px-2 ${
                       form.color === c.id
-                        ? 'bg-emerald-700 border-emerald-400 ring-2 ring-emerald-500/50'
-                        : 'bg-slate-950 border-slate-700'
+                        ? 'border-emerald-400 ring-2 ring-emerald-500/50'
+                        : 'border-slate-700'
                     }`}
                     onClick={() => setForm((f: WizardVariantForm) => ({ ...f, color: c.id }))}
                   >
@@ -522,7 +544,7 @@ export function CatalogPage({
           </div>
         )}
 
-        {wizardStep === 3 && (
+        {wizardOpen && wizardStep === 3 && (
           <div className="space-y-4">
             <div className="text-base text-slate-100">{t('admin.catalog.wizard.step3MatrixTitle')}</div>
             <p className="text-sm text-slate-400">{t('admin.catalog.wizard.step3MatrixHint')}</p>
@@ -721,14 +743,7 @@ export function CatalogPage({
                       type="button"
                       className="px-2 py-1 rounded bg-red-900 border border-red-700 inline-flex items-center gap-1"
                       onClick={async () => {
-                        if (!window.confirm(t('admin.catalog.confirmDelete'))) return
-                        try {
-                          await onDeleteVariant(v.id)
-                          setToast(t('admin.catalog.deleteSuccess'))
-                        } catch (e: unknown) {
-                          const code = (e as Error & { code?: string }).code
-                          setToast(t(`err.${code || 'DELETE_VARIANT_FAILED'}`))
-                        }
+                        setConfirmDeleteId(v.id)
                       }}
                     >
                       <Trash2 className="h-3.5 w-3.5" /> {t('admin.catalog.delete')}
@@ -974,6 +989,37 @@ export function CatalogPage({
                 onClick={() => setNumpadOpen(null)}
               >
                 {t('admin.common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-40 bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <div className="text-base font-semibold">{t('admin.catalog.confirmDelete')}</div>
+            <p className="text-sm text-slate-400">{t('admin.catalog.deleteImpact', { defaultValue: 'Bog‘langan savdo mavjud bo‘lsa soft delete ishlatiladi.' })}</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="px-3 py-2 rounded bg-slate-800 border border-slate-700" onClick={() => setConfirmDeleteId(null)}>
+                {t('admin.common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-red-700 border border-red-500"
+                onClick={async () => {
+                  const id = confirmDeleteId
+                  setConfirmDeleteId(null)
+                  if (!id) return
+                  try {
+                    await onDeleteVariant(id)
+                    setToast(t('admin.catalog.deleteSuccess'))
+                  } catch (e: unknown) {
+                    const code = (e as Error & { code?: string }).code
+                    setToast(t(`err.${code || 'DELETE_VARIANT_FAILED'}`))
+                  }
+                }}
+              >
+                {t('admin.catalog.delete')}
               </button>
             </div>
           </div>

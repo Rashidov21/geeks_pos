@@ -27,6 +27,7 @@ class StoreSettingsSerializer(serializers.ModelSerializer):
             "scanner_mode",
             "scanner_prefix",
             "scanner_suffix",
+            "lock_timeout_minutes",
             "updated_at",
         ]
         read_only_fields = ["id", "logo_url", "updated_at"]
@@ -69,4 +70,5 @@ class HardwareConfigSerializer(serializers.ModelSerializer):
             "scanner_mode",
             "scanner_prefix",
             "scanner_suffix",
+            "lock_timeout_minutes",
         ]

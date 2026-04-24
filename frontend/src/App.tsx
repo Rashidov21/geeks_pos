@@ -99,6 +99,7 @@ export default function App() {
   const [settings, setSettings] = useState<StoreSettings | null>(null)
   const [stocktake, setStocktake] = useState<StocktakeSession | null>(null)
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null)
+  const [dashboardFilter, setDashboardFilter] = useState<{ from?: string; to?: string; year?: string }>({})
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null)
   const [lastStockSyncAt, setLastStockSyncAt] = useState<string | null>(null)
   const isManager = role === 'ADMIN' || role === 'OWNER'
@@ -118,7 +119,7 @@ export default function App() {
       fetchOpenDebts(),
       fetchSalesHistory(salesFilter),
       fetchStoreSettings(),
-      fetchDashboardSummary(),
+      fetchDashboardSummary(dashboardFilter),
       fetchIntegrationSettings(),
     ])
     if (results[0].status === 'fulfilled') setCategories(results[0].value)
@@ -160,6 +161,9 @@ export default function App() {
     salesFilter.q,
     catalogFilter.page,
     catalogFilter.q,
+    dashboardFilter.from,
+    dashboardFilter.to,
+    dashboardFilter.year,
   ])
 
   useEffect(() => {
@@ -244,6 +248,7 @@ export default function App() {
                 catalogPage={catalogFilter.page}
                 settings={settings}
                 dashboardSummary={dashboardSummary}
+                dashboardFilter={dashboardFilter}
                 integrationSettings={integrationSettings}
                 stocktake={stocktake}
                 onCreateVariantBulk={async (payload) => {
@@ -364,6 +369,7 @@ export default function App() {
                   setIntegrationSettings(next)
                 }}
                 onSendZReport={sendZReport}
+                onFilterDashboard={(from, to, year) => setDashboardFilter({ from: from || undefined, to: to || undefined, year: year || undefined })}
               />
             </ProtectedRoute>
           }
@@ -391,6 +397,7 @@ function AdminPanel(props: {
   catalogPage: number
   settings: StoreSettings | null
   dashboardSummary: DashboardSummary | null
+  dashboardFilter: { from?: string; to?: string; year?: string }
   integrationSettings: IntegrationSettings | null
   stocktake: StocktakeSession | null
   onCreateVariantBulk: (payload: { product_id: string; matrix: BulkGridCell[] }) => Promise<Variant[]>
@@ -421,6 +428,7 @@ function AdminPanel(props: {
     scanner_mode: 'keyboard' | 'serial'
     scanner_prefix: string
     scanner_suffix: string
+    lock_timeout_minutes?: number
     logo?: File | null
   }) => Promise<void>
   onFilterSales: (from: string, to: string, q: string) => void
@@ -440,6 +448,7 @@ function AdminPanel(props: {
   onInventoryAdjust: (variantId: string, qtyDelta: number, note: string) => Promise<void>
   onSaveIntegrations: (data: IntegrationSettings) => Promise<void>
   onSendZReport: () => Promise<{ ok: boolean; details?: string; channel_results?: unknown }>
+  onFilterDashboard: (from?: string, to?: string, year?: string) => void
   onAdjustStockQuick: (variantId: string, qtyDelta: number, note: string) => Promise<void>
   onPrintSticker: (variantId: string, copies: number, size: '40x30' | '58mm') => Promise<void>
   onPrintStickerQueue: (
@@ -476,7 +485,7 @@ function AdminPanel(props: {
       />
       <main className="flex-1">
         <Routes>
-          <Route path="dashboard" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DashboardPage summary={props.dashboardSummary} onSendZReport={props.onSendZReport} />} />
+          <Route path="dashboard" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DashboardPage summary={props.dashboardSummary} filter={props.dashboardFilter} primaryChannel={props.integrationSettings?.primary_report_channel || 'both'} onFilter={props.onFilterDashboard} onSendZReport={props.onSendZReport} />} />
           <Route path="pos" element={<PosPage onLogout={props.onLogout} />} />
           <Route
             path="catalog"

@@ -1,9 +1,12 @@
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.models import User
 from django.middleware.csrf import get_token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from accounts.models import Role
+from core.permissions import IsAdminOrOwner
 
 
 def _resolve_role(user) -> str:
@@ -39,6 +42,70 @@ class LoginView(APIView):
         login(request, user)
         role = _resolve_role(user)
         return Response({"username": user.username, "role": role})
+
+
+class PinUsersView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        rows = []
+        for user in User.objects.filter(is_active=True).select_related("profile").order_by("username"):
+            role = _resolve_role(user)
+            profile = getattr(user, "profile", None)
+            rows.append(
+                {
+                    "username": user.username,
+                    "display_name": user.get_full_name() or user.username,
+                    "role": role,
+                    "pin_enabled": bool(profile and profile.pin_enabled),
+                }
+            )
+        return Response({"results": rows})
+
+
+class PinLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = (request.data.get("username") or "").strip()
+        pin = str(request.data.get("pin") or "").strip()
+        if not username or len(pin) != 4 or not pin.isdigit():
+            return Response({"code": "INVALID_PIN", "detail": "pin must be 4 digits"}, status=400)
+        try:
+            user = User.objects.select_related("profile").get(username=username, is_active=True)
+        except User.DoesNotExist:
+            return Response({"code": "INVALID_CREDENTIALS", "detail": "Invalid credentials"}, status=400)
+        profile = getattr(user, "profile", None)
+        if not profile or not profile.pin_enabled or not profile.pin_hash:
+            return Response({"code": "PIN_NOT_SET", "detail": "PIN is not configured"}, status=400)
+        if not check_password(pin, profile.pin_hash):
+            return Response({"code": "INVALID_PIN", "detail": "PIN mismatch"}, status=400)
+        login(request, user)
+        return Response({"username": user.username, "role": _resolve_role(user)})
+
+
+class SetUserPinView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+    def post(self, request):
+        username = (request.data.get("username") or "").strip()
+        pin = str(request.data.get("pin") or "").strip()
+        enabled = bool(request.data.get("enabled", True))
+        if not username:
+            return Response({"code": "USERNAME_REQUIRED"}, status=400)
+        if enabled and (len(pin) != 4 or not pin.isdigit()):
+            return Response({"code": "INVALID_PIN", "detail": "pin must be 4 digits"}, status=400)
+        try:
+            user = User.objects.select_related("profile").get(username=username)
+        except User.DoesNotExist:
+            return Response({"code": "USER_NOT_FOUND"}, status=404)
+        profile = getattr(user, "profile", None)
+        if not profile:
+            return Response({"code": "PROFILE_NOT_FOUND"}, status=404)
+        profile.pin_enabled = enabled
+        profile.pin_hash = make_password(pin) if enabled else ""
+        profile.save(update_fields=["pin_enabled", "pin_hash"])
+        return Response({"ok": True})
 
 
 class LogoutView(APIView):

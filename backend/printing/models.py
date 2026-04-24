@@ -37,6 +37,7 @@ class StoreSettings(models.Model):
     scanner_mode = models.CharField(max_length=16, default="keyboard")
     scanner_prefix = models.CharField(max_length=16, blank=True, default="")
     scanner_suffix = models.CharField(max_length=16, blank=True, default="\t")
+    lock_timeout_minutes = models.PositiveSmallIntegerField(default=5)
 
     updated_at = models.DateTimeField(auto_now=True)
 

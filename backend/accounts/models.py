@@ -18,6 +18,8 @@ class UserProfile(models.Model):
         related_name="profile",
     )
     role = models.CharField(max_length=16, choices=Role.choices, default=Role.CASHIER)
+    pin_hash = models.CharField(max_length=255, blank=True, default="")
+    pin_enabled = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"

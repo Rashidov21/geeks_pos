@@ -15,6 +15,7 @@ class IntegrationSettingsSerializer(serializers.ModelSerializer):
             "whatsapp_sender",
             "greenapi_instance_id",
             "greenapi_api_token_instance",
+            "primary_report_channel",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
