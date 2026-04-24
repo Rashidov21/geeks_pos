@@ -11,7 +11,7 @@
     "tauri:build": "tauri build"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^1.5.14",
+    "@tauri-apps/cli": "^1.6.3",
     "concurrently": "^9.1.0"
   }
 }
