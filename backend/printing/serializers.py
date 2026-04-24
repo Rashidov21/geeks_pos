@@ -19,7 +19,9 @@ class StoreSettingsSerializer(serializers.ModelSerializer):
             "encoding",
             "transliterate_uz",
             "receipt_printer_name",
+            "receipt_printer_type",
             "label_printer_name",
+            "label_printer_type",
             "receipt_width",
             "auto_print_on_sale",
             "scanner_mode",
@@ -59,7 +61,9 @@ class HardwareConfigSerializer(serializers.ModelSerializer):
         model = StoreSettings
         fields = [
             "receipt_printer_name",
+            "receipt_printer_type",
             "label_printer_name",
+            "label_printer_type",
             "receipt_width",
             "auto_print_on_sale",
             "scanner_mode",

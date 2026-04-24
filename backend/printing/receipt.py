@@ -110,7 +110,9 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
             "lang": _normalize_lang(lang),
             "receipt_width": settings.receipt_width or "58mm",
             "receipt_printer_name": settings.receipt_printer_name or "",
+            "receipt_printer_type": settings.receipt_printer_type,
             "label_printer_name": settings.label_printer_name or "",
+            "label_printer_type": settings.label_printer_type,
         },
         "sale_id": str(sale.id),
         "completed_at": sale.completed_at.isoformat(),
@@ -256,8 +258,9 @@ def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> byte
         p.text(f"{variant.barcode}\n")
         p.set(align="center", width=2, height=2)
         p.text(f"{price}\n")
-        p.set(align="left")
-        p.barcode(variant.barcode or "", "CODE39", height=64, width=2, pos="BELOW", align_ct=True, check=False)
+        p.set(align="center")
+        # Avoid python-escpos profile warning on Dummy() printers where media.width.pixel is unset.
+        p.barcode(variant.barcode or "", "CODE39", height=64, width=2, pos="BELOW", check=False)
         p.text("\n")
     try:
         p.cut(mode="PART")

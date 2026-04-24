@@ -74,7 +74,7 @@ class ProductVariant(models.Model):
                 name="uniq_product_size_color",
             ),
             models.CheckConstraint(
-                condition=models.Q(stock_qty__gte=0),
+                check=models.Q(stock_qty__gte=0),
                 name="variant_stock_non_negative",
             ),
         ]

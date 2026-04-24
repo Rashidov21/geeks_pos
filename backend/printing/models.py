@@ -4,6 +4,10 @@ from django.db import models
 
 
 class StoreSettings(models.Model):
+    class PrinterType(models.TextChoices):
+        ESC_POS = "ESC_POS", "ESC/POS"
+        TSPL = "TSPL", "TSPL"
+
     """Singleton-style store metadata for receipt header."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -17,7 +21,17 @@ class StoreSettings(models.Model):
     encoding = models.CharField(max_length=32, default="cp866")
     transliterate_uz = models.BooleanField(default=True)
     receipt_printer_name = models.CharField(max_length=255, blank=True, default="")
+    receipt_printer_type = models.CharField(
+        max_length=16,
+        choices=PrinterType.choices,
+        default=PrinterType.ESC_POS,
+    )
     label_printer_name = models.CharField(max_length=255, blank=True, default="")
+    label_printer_type = models.CharField(
+        max_length=16,
+        choices=PrinterType.choices,
+        default=PrinterType.TSPL,
+    )
     receipt_width = models.CharField(max_length=8, default="58mm")
     auto_print_on_sale = models.BooleanField(default=True)
     scanner_mode = models.CharField(max_length=16, default="keyboard")

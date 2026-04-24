@@ -271,3 +271,54 @@ def void_sale(*, sale: Sale, user: User, reason: str = "") -> Sale:
         payload={"reason": reason},
     )
     return sale
+
+
+@transaction.atomic
+def return_sale_lines(*, sale: Sale, user: User, lines: list[dict[str, Any]], reason: str = "") -> dict[str, Any]:
+    if sale.status != Sale.Status.COMPLETED:
+        raise ValueError("Only completed sales can be partially returned")
+    if not lines:
+        raise ValueError("At least one return line required")
+
+    sold_by_variant: dict[str, int] = {}
+    for ln in SaleLine.objects.filter(sale=sale):
+        key = str(ln.variant_id)
+        sold_by_variant[key] = sold_by_variant.get(key, 0) + int(ln.qty)
+
+    already_returned: dict[str, int] = {}
+    for mv in InventoryMovement.objects.filter(ref_sale=sale, type=InventoryMovement.Type.RETURN):
+        key = str(mv.variant_id)
+        already_returned[key] = already_returned.get(key, 0) + int(max(0, mv.qty_delta))
+
+    applied: list[dict[str, Any]] = []
+    for item in lines:
+        variant_id = str(item["variant_id"])
+        qty = int(item["qty"])
+        sold_qty = sold_by_variant.get(variant_id, 0)
+        returned_qty = already_returned.get(variant_id, 0)
+        remaining = sold_qty - returned_qty
+        if sold_qty <= 0:
+            raise ValueError(f"Variant not found in sale: {variant_id}")
+        if qty > remaining:
+            raise ValueError(f"Return qty exceeds remaining sold qty for variant: {variant_id}")
+        variant = ProductVariant.objects.get(pk=variant_id)
+        apply_movement(
+            variant=variant,
+            qty_delta=qty,
+            movement_type=InventoryMovement.Type.RETURN,
+            user=user,
+            ref_sale=sale,
+            note=f"Partial return. {reason}".strip(),
+        )
+        applied.append({"variant_id": variant_id, "qty": qty})
+
+    if reason:
+        sale.note = f"{sale.note}\nRETURN: {reason}".strip()
+        sale.save(update_fields=["note"])
+    log_audit(
+        event_type="sale_partial_returned",
+        actor=user.username if user else None,
+        entity_id=str(sale.id),
+        payload={"line_count": len(applied), "reason": reason, "lines": applied},
+    )
+    return {"sale_id": str(sale.id), "status": sale.status, "lines": applied}

@@ -10,6 +10,7 @@ import {
   fetchVariantByBarcode,
   fetchPosVariantSearch,
   fetchPosVariantsByProduct,
+  fetchStockEvents,
   logout,
   updatePosVariantPrice,
   type PosVariant,
@@ -86,6 +87,14 @@ function normalizeScannerToken(token: string): string {
   return token
 }
 
+function normalizeScanValue(raw: string, prefix: string, suffix: string): string {
+  let value = (raw || '').trim()
+  if (!value) return ''
+  if (suffix && value.endsWith(suffix)) value = value.slice(0, -suffix.length).trim()
+  if (prefix && value.startsWith(prefix)) value = value.slice(prefix.length)
+  return value.trim()
+}
+
 function moneyFromLine(list: string, qty: number): string {
   return roundSom(new Decimal(list).mul(qty)).toString()
 }
@@ -104,7 +113,7 @@ function calcGrand(subtotal: Decimal, discount: Decimal): Decimal {
 }
 
 const AFTER_SCAN_FOCUS_KEY = 'pos_after_scan_focus'
-const LOW_STOCK_THRESHOLD = 2
+const LOW_STOCK_THRESHOLD = 5
 
 type NumpadCtx = { kind: 'discount' } | { kind: 'payment'; rowId: string }
 
@@ -134,6 +143,7 @@ export function PosPage({
   const [orderDiscount, setOrderDiscount] = useState('0')
   const [scannerPrefix, setScannerPrefix] = useState('')
   const [scannerSuffix, setScannerSuffix] = useState('\t')
+  const [scannerMode, setScannerMode] = useState<'keyboard' | 'serial'>('keyboard')
   const [autoPrintOnSale, setAutoPrintOnSale] = useState(true)
   const [receiptPrinterName, setReceiptPrinterName] = useState('')
   const [afterScanFocus, setAfterScanFocus] = useState<'scan' | 'qty'>(() => {
@@ -166,6 +176,7 @@ export function PosPage({
   const setPayMode = usePosStore((s) => s.setPayMode)
   const setCustomer = usePosStore((s) => s.setCustomer)
   const updateLinePrice = usePosStore((s) => s.updateLinePrice)
+  const updateLineStock = usePosStore((s) => s.updateLineStock)
 
   const subtotal = sumGrand(cart)
   const subtotalDec = useMemo(() => parseSom(subtotal), [subtotal])
@@ -220,11 +231,14 @@ export function PosPage({
       setSearchBusy(true)
       void fetchPosVariantSearch(q)
         .then(setSearchResults)
-        .catch(() => setSearchResults([]))
+        .catch(() => {
+          setSearchResults([])
+          showToast('err', t('err.API_ERROR'))
+        })
         .finally(() => setSearchBusy(false))
     }, 320)
     return () => window.clearTimeout(tmr)
-  }, [productSearch])
+  }, [productSearch, t])
 
   useEffect(() => {
     if (!stockMatrix) {
@@ -234,14 +248,18 @@ export function PosPage({
     setMatrixBusy(true)
     void fetchPosVariantsByProduct(stockMatrix.productId, stockMatrix.colorId)
       .then(setMatrixRows)
-      .catch(() => setMatrixRows([]))
+      .catch(() => {
+        setMatrixRows([])
+        showToast('err', t('err.API_ERROR'))
+      })
       .finally(() => setMatrixBusy(false))
-  }, [stockMatrix])
+  }, [stockMatrix, t])
 
   useEffect(() => {
     ;(async () => {
       try {
         const cfg = await fetchHardwareConfig()
+        setScannerMode(cfg.scanner_mode === 'serial' ? 'serial' : 'keyboard')
         setScannerPrefix(normalizeScannerToken(cfg.scanner_prefix || ''))
         setScannerSuffix(normalizeScannerToken(cfg.scanner_suffix || '\t') || '\t')
         setAutoPrintOnSale(cfg.auto_print_on_sale !== false)
@@ -249,11 +267,31 @@ export function PosPage({
       } catch {
         setScannerPrefix('')
         setScannerSuffix('\t')
+        setScannerMode('keyboard')
         setAutoPrintOnSale(true)
         setReceiptPrinterName('')
       }
     })()
   }, [])
+
+  useEffect(() => {
+    let since: string | undefined
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const events = await fetchStockEvents(since)
+          if (events.length === 0) return
+          since = events[events.length - 1].created_at
+          for (const e of events) {
+            updateLineStock(e.variant_id, e.stock_qty)
+          }
+        } catch {
+          // ignore stock sync polling errors
+        }
+      })()
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [updateLineStock])
 
   useEffect(() => {
     if (paymentRows.length === 1) {
@@ -471,7 +509,9 @@ export function PosPage({
     if (e.key === 'Enter') {
       e.preventDefault()
       if (buffer.trim()) {
-        void handleScanSubmit(buffer)
+        const normalized = normalizeScanValue(buffer, scannerPrefix, scannerSuffix || '\t')
+        setBuffer('')
+        if (normalized) void handleScanSubmit(normalized)
       } else if (cart.length > 0 && !completing) {
         void doComplete()
       }
@@ -511,12 +551,13 @@ export function PosPage({
 
   function onScanChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value
+    if (scannerMode !== 'keyboard') {
+      setBuffer(v)
+      return
+    }
     const suffix = scannerSuffix || '\t'
-    if (suffix && v.includes(suffix)) {
-      let code = v.replaceAll(suffix, '').trim()
-      if (scannerPrefix && code.startsWith(scannerPrefix)) {
-        code = code.slice(scannerPrefix.length)
-      }
+    if (suffix && v.endsWith(suffix)) {
+      const code = normalizeScanValue(v, scannerPrefix, suffix)
       setBuffer('')
       void handleScanSubmit(code)
       return
@@ -648,6 +689,7 @@ export function PosPage({
             }`}
             placeholder={t('scan.placeholder')}
             autoComplete="off"
+            onBlur={() => safeRefocus()}
           />
           <p className="text-xs text-slate-500">{t('scan.hint')}</p>
 
@@ -996,7 +1038,10 @@ export function PosPage({
               <button
                 type="button"
                 className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-600"
-                onClick={() => setSelectedLine(null)}
+                onClick={() => {
+                  setSelectedLine(null)
+                  safeRefocus()
+                }}
               >
                 {t('admin.common.cancel')}
               </button>
@@ -1045,7 +1090,10 @@ export function PosPage({
               <button
                 type="button"
                 className="touch-btn px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-sm"
-                onClick={() => setStockMatrix(null)}
+                onClick={() => {
+                  setStockMatrix(null)
+                  safeRefocus()
+                }}
               >
                 {t('pos.matrixClose')}
               </button>

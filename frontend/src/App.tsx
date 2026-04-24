@@ -22,14 +22,17 @@ import {
   fetchLabelEscpos,
   fetchLabelQueueEscpos,
   fetchSalesHistory,
+  fetchStockEvents,
   fetchSizes,
   fetchStocktakeSession,
   listStocktakeSessions,
+  fetchReceiptEscpos,
+  fetchReceiptPlain,
   fetchStoreSettings,
   fetchVariants,
   logout,
   repayDebt,
-  sendTelegramZReport,
+  sendZReport,
   sendWhatsAppReminder,
   backupNow,
   receiveInventory,
@@ -96,6 +99,7 @@ export default function App() {
   const [stocktake, setStocktake] = useState<StocktakeSession | null>(null)
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null)
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null)
+  const [lastStockSyncAt, setLastStockSyncAt] = useState<string | null>(null)
   const isManager = role === 'ADMIN' || role === 'OWNER'
 
   async function refreshAdminData() {
@@ -157,6 +161,30 @@ export default function App() {
     catalogFilter.q,
   ])
 
+  useEffect(() => {
+    if (!authed) return
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const events = await fetchStockEvents(lastStockSyncAt || undefined)
+          if (events.length === 0) return
+          setLastStockSyncAt(events[events.length - 1].created_at)
+          const byVariant = new Map<string, number>()
+          for (const e of events) byVariant.set(e.variant_id, e.stock_qty)
+          setVariants((prev) => ({
+            ...prev,
+            results: prev.results.map((v) =>
+              byVariant.has(v.id) ? { ...v, stock_qty: byVariant.get(v.id) ?? v.stock_qty } : v,
+            ),
+          }))
+        } catch {
+          // ignore stock sync errors
+        }
+      })()
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [authed, lastStockSyncAt])
+
   if (booting) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
   if (authed && !role) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
 
@@ -213,8 +241,9 @@ export default function App() {
                 integrationSettings={integrationSettings}
                 stocktake={stocktake}
                 onCreateVariantBulk={async (payload) => {
-                  await createVariantBulkGrid(payload)
+                  const out = await createVariantBulkGrid(payload)
                   await refreshAdminData()
+                  return out
                 }}
                 onCreateCategory={async (payload) => {
                   await createCategory(payload)
@@ -272,10 +301,25 @@ export default function App() {
                 onCatalogFilter={(q) => setCatalogFilter({ q, page: 1 })}
                 onCatalogPage={(page) => setCatalogFilter((p) => ({ ...p, page }))}
                 salesPage={salesFilter.page}
-                onExportSales={() => exportSalesCsv({ from: salesFilter.from, to: salesFilter.to })}
+                onExportSales={async () => {
+                  await exportSalesCsv({ from: salesFilter.from, to: salesFilter.to })
+                }}
                 onVoidSale={async (saleId, reason) => {
                   await voidSale(saleId, reason)
                   await refreshAdminData()
+                }}
+                onReprintSale={async (saleId) => {
+                  const b64 = await fetchReceiptEscpos(saleId)
+                  const printerName = (settings?.receipt_printer_name || '').trim()
+                  if (b64) {
+                    await printEscposBase64(b64, printerName || null)
+                    return
+                  }
+                  const plain = await fetchReceiptPlain(saleId)
+                  if (plain) {
+                    const { invoke } = await import('@tauri-apps/api/tauri')
+                    await invoke('print_plain', { text: plain })
+                  }
                 }}
                 onCreateStocktake={async (note) => {
                   const s = await createStocktakeSession(note)
@@ -309,7 +353,7 @@ export default function App() {
                   const next = await updateIntegrationSettings(data)
                   setIntegrationSettings(next)
                 }}
-                onSendZReport={sendTelegramZReport}
+                onSendZReport={sendZReport}
               />
             </ProtectedRoute>
           }
@@ -339,7 +383,7 @@ function AdminPanel(props: {
   dashboardSummary: DashboardSummary | null
   integrationSettings: IntegrationSettings | null
   stocktake: StocktakeSession | null
-  onCreateVariantBulk: (payload: { product_id: string; matrix: BulkGridCell[] }) => Promise<void>
+  onCreateVariantBulk: (payload: { product_id: string; matrix: BulkGridCell[] }) => Promise<Variant[]>
   onCreateCategory: (payload: { name_uz: string; name_ru: string }) => Promise<void>
   onCreateProduct: (payload: { category: string; name_uz: string; name_ru: string }) => Promise<void>
   onCreateSize: (payload: { value: string; label_uz: string; label_ru: string; sort_order?: number }) => Promise<void>
@@ -358,7 +402,9 @@ function AdminPanel(props: {
     footer_note: string
     transliterate_uz: boolean
     receipt_printer_name: string
+    receipt_printer_type: 'ESC_POS' | 'TSPL'
     label_printer_name: string
+    label_printer_type: 'ESC_POS' | 'TSPL'
     receipt_width: '58mm' | '80mm'
     auto_print_on_sale: boolean
     scanner_mode: 'keyboard' | 'serial'
@@ -370,9 +416,10 @@ function AdminPanel(props: {
   onSalesPage: (page: number) => void
   onCatalogFilter: (q: string) => void
   onCatalogPage: (page: number) => void
-  onExportSales: () => void
+  onExportSales: () => Promise<void>
   salesPage: number
   onVoidSale: (saleId: string, reason: string) => Promise<void>
+  onReprintSale: (saleId: string) => Promise<void>
   onCreateStocktake: (note: string) => Promise<void>
   onReloadOpenStocktake: () => Promise<void>
   onSetStocktakeCount: (variantId: string, countedQty: number) => Promise<void>
@@ -381,7 +428,7 @@ function AdminPanel(props: {
   onInventoryReceive: (variantId: string, qty: number, note: string) => Promise<void>
   onInventoryAdjust: (variantId: string, qtyDelta: number, note: string) => Promise<void>
   onSaveIntegrations: (data: IntegrationSettings) => Promise<void>
-  onSendZReport: () => Promise<{ ok: boolean; details?: string }>
+  onSendZReport: () => Promise<{ ok: boolean; details?: string; channel_results?: unknown }>
   onAdjustStockQuick: (variantId: string, qtyDelta: number, note: string) => Promise<void>
   onPrintSticker: (variantId: string, copies: number, size: '40x30' | '58mm') => Promise<void>
   onPrintStickerQueue: (
@@ -437,7 +484,6 @@ function AdminPanel(props: {
                 onCreateCategory={props.onCreateCategory}
                 onCreateProduct={props.onCreateProduct}
                 onCreateSize={props.onCreateSize}
-                onCreateColor={props.onCreateColor}
                 onAdjustStockQuick={props.onAdjustStockQuick}
                 onPrintSticker={props.onPrintSticker}
                 onPrintStickerQueue={props.onPrintStickerQueue}
@@ -470,6 +516,7 @@ function AdminPanel(props: {
                 onFilter={props.onFilterSales}
                 onExport={props.onExportSales}
                 onVoid={props.onVoidSale}
+                onReprint={props.onReprintSale}
                 canVoid={!isCashier}
                 canExport={!isCashier}
               />

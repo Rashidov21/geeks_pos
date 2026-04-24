@@ -26,6 +26,7 @@ type PosState = {
   setPayMode: (m: PayMode) => void
   setCustomer: (name: string, phone: string) => void
   updateLinePrice: (variantId: string, listPrice: string) => void
+  updateLineStock: (variantId: string, stockQty: number) => void
 }
 
 export const usePosStore = create<PosState>((set, get) => ({
@@ -85,5 +86,9 @@ export const usePosStore = create<PosState>((set, get) => ({
   updateLinePrice: (variantId, listPrice) =>
     set({
       cart: get().cart.map((c) => (c.variantId === variantId ? { ...c, listPrice } : c)),
+    }),
+  updateLineStock: (variantId, stockQty) =>
+    set({
+      cart: get().cart.map((c) => (c.variantId === variantId ? { ...c, stockQty } : c)),
     }),
 }))

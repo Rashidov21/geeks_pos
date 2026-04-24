@@ -47,7 +47,7 @@ class SaleLine(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(qty__gt=0), name="saleline_qty_positive"
+                check=models.Q(qty__gt=0), name="saleline_qty_positive"
             ),
         ]
 

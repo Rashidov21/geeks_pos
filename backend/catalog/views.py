@@ -175,7 +175,10 @@ class BulkVariantGridView(APIView):
     def post(self, request):
         ser = BulkGridSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        product = Product.objects.get(pk=ser.validated_data["product_id"])
+        try:
+            product = Product.objects.get(pk=ser.validated_data["product_id"])
+        except Product.DoesNotExist:
+            return Response({"code": "PRODUCT_NOT_FOUND", "detail": "Product not found."}, status=404)
         created = bulk_create_variant_grid(
             product=product,
             matrix=[dict(c) for c in ser.validated_data["matrix"]],
@@ -211,7 +214,10 @@ class PosVariantPriceView(APIView):
     permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request, pk):
-        variant = ProductVariant.objects.select_related("product", "size", "color").get(pk=pk)
+        try:
+            variant = ProductVariant.objects.select_related("product", "size", "color").get(pk=pk)
+        except ProductVariant.DoesNotExist:
+            return Response({"code": "VARIANT_NOT_FOUND", "detail": "Variant not found."}, status=404)
         ser = PosPriceUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         old_price = variant.list_price

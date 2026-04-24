@@ -7,6 +7,8 @@ from .views import (
     ReceiptEscposView,
     ReceiptPayloadView,
     StoreSettingsView,
+    TestLabelPrintView,
+    TestReceiptPrintView,
 )
 
 urlpatterns = [
@@ -16,4 +18,6 @@ urlpatterns = [
     path("receipt/<uuid:sale_id>/escpos/", ReceiptEscposView.as_view()),
     path("labels/escpos/", LabelEscposView.as_view()),
     path("labels/queue/escpos/", LabelQueueEscposView.as_view()),
+    path("test-receipt/", TestReceiptPrintView.as_view()),
+    path("test-label/", TestLabelPrintView.as_view()),
 ]

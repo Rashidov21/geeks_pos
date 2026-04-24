@@ -9,7 +9,7 @@ from django.db import close_old_connections
 from catalog.models import Category, Color, Product, ProductVariant, Size
 from core.exceptions import InsufficientStock, InvalidPaymentSplit
 from sales.models import Payment, Sale, SaleLine
-from sales.services import complete_sale, void_sale
+from sales.services import complete_sale, return_sale_lines, void_sale
 from debt.models import Debt
 
 
@@ -248,3 +248,34 @@ def test_void_sale_reverses_stock_and_voids_debt(cashier, variant):
     assert variant.stock_qty == 5
     assert debt.status == Debt.Status.VOIDED
     assert debt.total_amount == debt.paid_amount + debt.remaining_amount
+
+
+@pytest.mark.django_db
+def test_partial_return_increases_stock_with_guard(cashier, variant):
+    sale = complete_sale(
+        idempotency_key=str(uuid.uuid4()),
+        cashier=cashier,
+        lines=[{"variant_id": str(variant.id), "qty": 3, "line_discount": "0"}],
+        payments=[{"method": "CASH", "amount": "450000.00"}],
+        customer=None,
+    )
+    variant.refresh_from_db()
+    assert variant.stock_qty == 2
+
+    out = return_sale_lines(
+        sale=sale,
+        user=cashier,
+        lines=[{"variant_id": str(variant.id), "qty": 2}],
+        reason="customer return",
+    )
+    assert out["sale_id"] == str(sale.id)
+    variant.refresh_from_db()
+    assert variant.stock_qty == 4
+
+    with pytest.raises(ValueError):
+        return_sale_lines(
+            sale=sale,
+            user=cashier,
+            lines=[{"variant_id": str(variant.id), "qty": 2}],
+            reason="over return",
+        )

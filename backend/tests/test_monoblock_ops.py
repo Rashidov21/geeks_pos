@@ -1,3 +1,5 @@
+import base64
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -140,4 +142,77 @@ def test_store_settings_save_hardware_fields_for_owner(client):
     body = r.json()
     assert body["receipt_printer_name"] == "EPSON TM-T20"
     assert body["receipt_width"] == "80mm"
+
+
+@pytest.mark.django_db
+def test_label_endpoint_returns_variant_not_found_code(client):
+    owner = _mk_user("owner_label_404", "OWNER")
+    client.force_login(owner)
+    missing_variant_id = str(uuid.uuid4())
+    r = client.post(
+        "/api/printing/labels/escpos/",
+        data={"variant_id": missing_variant_id, "size": "40x30", "copies": 1},
+        content_type="application/json",
+    )
+    assert r.status_code == 404
+    assert r.json()["code"] == "VARIANT_NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_bulk_grid_returns_product_not_found_code(client):
+    owner = _mk_user("owner_bulk_404", "OWNER")
+    variant = _mk_variant()
+    client.force_login(owner)
+    r = client.post(
+        "/api/catalog/variants/bulk-grid/",
+        data={
+            "product_id": str(uuid.uuid4()),
+            "matrix": [
+                {
+                    "size_id": str(variant.size_id),
+                    "color_id": str(variant.color_id),
+                    "purchase_price": "100000",
+                    "list_price": "150000",
+                    "initial_qty": 1,
+                }
+            ],
+        },
+        content_type="application/json",
+    )
+    assert r.status_code == 404
+    assert r.json()["code"] == "PRODUCT_NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_receipt_endpoints_return_sale_not_found_code(client):
+    cashier = _mk_user("cashier_sale_404", "CASHIER")
+    client.force_login(cashier)
+    missing_sale_id = str(uuid.uuid4())
+    plain = client.get(f"/api/printing/receipt/{missing_sale_id}/")
+    escpos = client.get(f"/api/printing/receipt/{missing_sale_id}/escpos/")
+    assert plain.status_code == 404
+    assert escpos.status_code == 404
+    assert plain.json()["code"] == "SALE_NOT_FOUND"
+    assert escpos.json()["code"] == "SALE_NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_tspl_label_honors_size_58mm(client):
+    owner = _mk_user("owner_tspl_size", "OWNER")
+    variant = _mk_variant()
+    client.force_login(owner)
+    put = client.put(
+        "/api/printing/settings/",
+        data={"label_printer_type": "TSPL"},
+        content_type="application/json",
+    )
+    assert put.status_code == 200
+    r = client.post(
+        "/api/printing/labels/escpos/",
+        data={"variant_id": str(variant.id), "size": "58mm", "copies": 1},
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+    raw = base64.b64decode(r.json()["raw_base64"]).decode("ascii", errors="ignore")
+    assert "SIZE 58 mm,40 mm" in raw
 

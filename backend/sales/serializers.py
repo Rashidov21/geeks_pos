@@ -60,3 +60,13 @@ class SaleHistorySerializer(serializers.ModelSerializer):
 
 class VoidSaleSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class ReturnLineSerializer(serializers.Serializer):
+    variant_id = serializers.UUIDField()
+    qty = serializers.IntegerField(min_value=1)
+
+
+class SaleReturnSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+    lines = ReturnLineSerializer(many=True)

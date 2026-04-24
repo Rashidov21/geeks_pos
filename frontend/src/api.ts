@@ -16,6 +16,16 @@ function getCookie(name: string): string | null {
   return m ? decodeURIComponent(m[2]) : null
 }
 
+function getUiLanguageHeader(): string {
+  try {
+    const stored = localStorage.getItem('geeks_pos_lang') || ''
+    if (stored.toLowerCase().startsWith('ru')) return 'ru'
+  } catch {
+    // ignore localStorage access issues
+  }
+  return 'uz'
+}
+
 async function parseErrorResponse(r: Response, fallbackCode: string): Promise<AppError> {
   const j = (await r.json().catch(() => ({}))) as { code?: string; detail?: string }
   return new AppError(j.code || fallbackCode, j.detail)
@@ -30,7 +40,7 @@ export type PosVariant = {
   size_label_uz: string
   color: string
   color_label_uz: string
-  barcode: string
+  barcode: string | null
   list_price: string
   stock_qty: number
   is_active: boolean
@@ -139,8 +149,8 @@ export async function fetchReceiptEscpos(saleId: string): Promise<string | null>
     credentials: 'include',
   })
   if (!r.ok) return null
-  const j = await r.json()
-  return j.escpos_base64 as string | null
+  const j = (await r.json()) as { raw_base64?: string | null; escpos_base64?: string | null }
+  return j.raw_base64 ?? j.escpos_base64 ?? null
 }
 
 export async function fetchReceiptPlain(saleId: string): Promise<string | null> {
@@ -195,7 +205,7 @@ export type Variant = {
   size_label_uz: string
   color: string
   color_label_uz: string
-  barcode: string
+  barcode: string | null
   purchase_price: string
   list_price: string
   stock_qty: number
@@ -529,7 +539,9 @@ export type StoreSettings = {
   footer_note: string
   transliterate_uz: boolean
   receipt_printer_name: string
+  receipt_printer_type: 'ESC_POS' | 'TSPL'
   label_printer_name: string
+  label_printer_type: 'ESC_POS' | 'TSPL'
   receipt_width: '58mm' | '80mm'
   auto_print_on_sale: boolean
   scanner_mode: 'keyboard' | 'serial'
@@ -541,7 +553,9 @@ export type StoreSettings = {
 export type HardwareConfig = Pick<
   StoreSettings,
   | 'receipt_printer_name'
+  | 'receipt_printer_type'
   | 'label_printer_name'
+  | 'label_printer_type'
   | 'receipt_width'
   | 'auto_print_on_sale'
   | 'scanner_mode'
@@ -571,7 +585,9 @@ export async function updateStoreSettings(data: {
   footer_note: string
   transliterate_uz: boolean
   receipt_printer_name: string
+  receipt_printer_type: 'ESC_POS' | 'TSPL'
   label_printer_name: string
+  label_printer_type: 'ESC_POS' | 'TSPL'
   receipt_width: '58mm' | '80mm'
   auto_print_on_sale: boolean
   scanner_mode: 'keyboard' | 'serial'
@@ -587,7 +603,9 @@ export async function updateStoreSettings(data: {
   fd.append('footer_note', data.footer_note)
   fd.append('transliterate_uz', data.transliterate_uz ? 'true' : 'false')
   fd.append('receipt_printer_name', data.receipt_printer_name)
+  fd.append('receipt_printer_type', data.receipt_printer_type)
   fd.append('label_printer_name', data.label_printer_name)
+  fd.append('label_printer_type', data.label_printer_type)
   fd.append('receipt_width', data.receipt_width)
   fd.append('auto_print_on_sale', data.auto_print_on_sale ? 'true' : 'false')
   fd.append('scanner_mode', data.scanner_mode)
@@ -609,6 +627,39 @@ export async function fetchHardwareConfig(): Promise<HardwareConfig> {
   const r = await fetch(`${API}/api/printing/hardware-config/`, { credentials: 'include' })
   if (!r.ok) throw await parseErrorResponse(r, 'FETCH_HARDWARE_CONFIG_FAILED')
   return r.json()
+}
+
+export async function testReceiptPrintPayload() {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/printing/test-receipt/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  if (!r.ok) throw await parseErrorResponse(r, 'TEST_RECEIPT_FAILED')
+  return r.json() as Promise<{
+    raw_base64: string
+    escpos_base64: string
+    printer_name: string
+    printer_type: 'ESC_POS' | 'TSPL'
+  }>
+}
+
+export async function testLabelPrintPayload() {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/printing/test-label/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  if (!r.ok) throw await parseErrorResponse(r, 'TEST_LABEL_FAILED')
+  return r.json() as Promise<{
+    raw_base64: string
+    escpos_base64: string
+    printer_name: string
+    printer_type: 'ESC_POS' | 'TSPL'
+    size: '40x30' | '58mm'
+  }>
 }
 
 export type StocktakeSession = {
@@ -714,15 +765,34 @@ export async function updateIntegrationSettings(data: IntegrationSettings) {
   return (await r.json()) as IntegrationSettings
 }
 
-export async function sendTelegramZReport() {
+export type SendZReportResponse = {
+  ok: boolean
+  details?: string
+  lang?: 'uz' | 'ru' | string
+  channel_results?: Partial<
+    Record<'telegram' | 'whatsapp', { ok: boolean; details?: string }>
+  >
+}
+
+export async function sendZReport() {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
-  const r = await fetch(`${API}/api/integrations/telegram/send-z-report/`, {
+  const headers = { 'X-CSRFToken': csrf, 'Accept-Language': getUiLanguageHeader() }
+  const r = await fetch(`${API}/api/integrations/z-report/send/`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'X-CSRFToken': csrf },
+    headers,
   })
-  if (!r.ok) throw await parseErrorResponse(r, 'TELEGRAM_SEND_FAILED')
-  return r.json() as Promise<{ ok: boolean; details?: string }>
+  if (!r.ok) {
+    // Transitional fallback for older backend deployments.
+    const legacy = await fetch(`${API}/api/integrations/telegram/send-z-report/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+    })
+    if (!legacy.ok) throw await parseErrorResponse(legacy, 'ZREPORT_SEND_FAILED')
+    return legacy.json() as Promise<SendZReportResponse>
+  }
+  return r.json() as Promise<SendZReportResponse>
 }
 
 export async function sendWhatsAppReminder(customerId: string, amount: string) {
@@ -749,6 +819,23 @@ export async function receiveInventory(variantId: string, qty: number, note: str
   return r.json() as Promise<{ variant_id: string; stock_qty: number }>
 }
 
+export type StockEvent = {
+  movement_id: string
+  variant_id: string
+  qty_delta: number
+  type: 'SALE' | 'RETURN' | 'ADJUST' | 'IN'
+  stock_qty: number
+  created_at: string
+}
+
+export async function fetchStockEvents(since?: string) {
+  const q = since ? `?since=${encodeURIComponent(since)}` : ''
+  const r = await fetch(`${API}/api/inventory/stock-events/${q}`, { credentials: 'include' })
+  if (!r.ok) throw await parseErrorResponse(r, 'FETCH_STOCK_EVENTS_FAILED')
+  const j = (await r.json()) as { events?: StockEvent[] }
+  return Array.isArray(j.events) ? j.events : []
+}
+
 export async function adjustInventory(variantId: string, qtyDelta: number, note: string) {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   const r = await fetch(`${API}/api/inventory/adjust/`, {
@@ -770,7 +857,7 @@ export async function fetchLabelEscpos(variantId: string, size: '40x30' | '58mm'
     body: JSON.stringify({ variant_id: variantId, size, copies }),
   })
   if (!r.ok) throw await parseErrorResponse(r, 'LABEL_PRINT_FAILED')
-  return (await r.json()) as { escpos_base64: string }
+  return (await r.json()) as { raw_base64: string; escpos_base64: string }
 }
 
 export async function fetchLabelQueueEscpos(
@@ -787,6 +874,6 @@ export async function fetchLabelQueueEscpos(
   if (!r.ok) throw await parseErrorResponse(r, 'LABEL_QUEUE_FAILED')
   return (await r.json()) as {
     size: '40x30' | '58mm'
-    items: Array<{ variant_id: string; barcode: string; escpos_base64: string }>
+    items: Array<{ variant_id: string; barcode: string | null; raw_base64: string; escpos_base64: string }>
   }
 }

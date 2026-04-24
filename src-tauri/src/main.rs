@@ -277,19 +277,24 @@ fn print_plain(text: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn print_escpos(payload: String, printer_name: Option<String>) -> Result<String, String> {
+fn print_raw(payload: String, printer_name: Option<String>) -> Result<String, String> {
     let bytes = B64.decode(payload.trim()).map_err(|e| e.to_string())?;
 
     #[cfg(windows)]
     {
         let target = printer_name.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        raw_print_to(target, &bytes, "Geeks POS ESC/POS")?;
+        raw_print_to(target, &bytes, "Geeks POS RAW")?;
         let label = target.unwrap_or("(default Windows printer)");
         return Ok(format!("Printed to {label}"));
     }
 
     #[allow(unreachable_code)]
     Err("Raw printing is only supported on Windows".to_string())
+}
+
+#[tauri::command]
+fn print_escpos(payload: String, printer_name: Option<String>) -> Result<String, String> {
+    print_raw(payload, printer_name)
 }
 
 #[tauri::command]
@@ -318,7 +323,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![print_plain, print_escpos, list_printers])
+        .invoke_handler(tauri::generate_handler![print_plain, print_raw, print_escpos, list_printers])
         .build(tauri::generate_context!())
         .expect("error while building tauri app");
 

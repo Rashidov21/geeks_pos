@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { IntegrationSettings, StocktakeSession, StoreSettings } from '../api'
+import {
+  testLabelPrintPayload,
+  testReceiptPrintPayload,
+  type IntegrationSettings,
+  type StocktakeSession,
+  type StoreSettings,
+} from '../api'
 import { useTranslation } from 'react-i18next'
 import { labelPrinterStatus, receiptPrinterStatus } from '../utils/hardwareStatus'
+import { printEscposBase64 } from '../utils/tauriPrint'
+import { ActionToast } from '../components/ActionToast'
 
 export function SettingsPage({
   settings,
@@ -26,7 +34,9 @@ export function SettingsPage({
     footer_note: string
     transliterate_uz: boolean
     receipt_printer_name: string
+    receipt_printer_type: 'ESC_POS' | 'TSPL'
     label_printer_name: string
+    label_printer_type: 'ESC_POS' | 'TSPL'
     receipt_width: '58mm' | '80mm'
     auto_print_on_sale: boolean
     scanner_mode: 'keyboard' | 'serial'
@@ -64,7 +74,9 @@ export function SettingsPage({
     footer_note: settings?.footer_note ?? '',
     transliterate_uz: settings?.transliterate_uz ?? true,
     receipt_printer_name: settings?.receipt_printer_name ?? '',
+    receipt_printer_type: settings?.receipt_printer_type ?? 'ESC_POS',
     label_printer_name: settings?.label_printer_name ?? '',
+    label_printer_type: settings?.label_printer_type ?? 'TSPL',
     receipt_width: settings?.receipt_width ?? '58mm',
     auto_print_on_sale: settings?.auto_print_on_sale ?? true,
     scanner_mode: settings?.scanner_mode ?? 'keyboard',
@@ -91,7 +103,9 @@ export function SettingsPage({
       footer_note: settings?.footer_note ?? '',
       transliterate_uz: settings?.transliterate_uz ?? true,
       receipt_printer_name: settings?.receipt_printer_name ?? '',
+      receipt_printer_type: settings?.receipt_printer_type ?? 'ESC_POS',
       label_printer_name: settings?.label_printer_name ?? '',
+      label_printer_type: settings?.label_printer_type ?? 'TSPL',
       receipt_width: settings?.receipt_width ?? '58mm',
       auto_print_on_sale: settings?.auto_print_on_sale ?? true,
       scanner_mode: settings?.scanner_mode ?? 'keyboard',
@@ -174,17 +188,7 @@ export function SettingsPage({
           {t('admin.settings.tabBots')}
         </button>
       </div>
-      {actionToast && (
-        <div
-          className={`px-3 py-2 rounded text-sm border ${
-            actionToast.kind === 'ok'
-              ? 'bg-emerald-950 border-emerald-700 text-emerald-100'
-              : 'bg-red-950 border-red-700 text-red-100'
-          }`}
-        >
-          {actionToast.message}
-        </div>
-      )}
+      {actionToast && <ActionToast kind={actionToast.kind} message={actionToast.message} />}
       {activeTab === 'store' && (
         <>
           {settings?.logo_url && (
@@ -209,29 +213,33 @@ export function SettingsPage({
               }
             }}
           >
+            <label className="block text-xs text-slate-400">{t('admin.settings.brandName')}</label>
             <input
               className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
               value={form.brand_name}
               onChange={(e) => setForm({ ...form, brand_name: e.target.value })}
-              placeholder={t('admin.settings.brandName')}
+              placeholder={t('admin.settings.brandNameExample')}
             />
+            <label className="block text-xs text-slate-400">{t('admin.settings.phone')}</label>
             <input
               className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder={t('admin.settings.phone')}
+              placeholder={t('admin.settings.phoneExample')}
             />
+            <label className="block text-xs text-slate-400">{t('admin.settings.address')}</label>
             <input
               className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
-              placeholder={t('admin.settings.address')}
+              placeholder={t('admin.settings.addressExample')}
             />
+            <label className="block text-xs text-slate-400">{t('admin.settings.footer')}</label>
             <input
               className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
               value={form.footer_note}
               onChange={(e) => setForm({ ...form, footer_note: e.target.value })}
-              placeholder={t('admin.settings.footer')}
+              placeholder={t('admin.settings.footerExample')}
             />
             <div
               className={`rounded-xl border p-3 text-sm ${
@@ -281,13 +289,44 @@ export function SettingsPage({
               {hwStep === 1 && (
                 <div className="space-y-3">
                   <div className="text-slate-300">{t('admin.settings.hwWizard.step1')}</div>
+                  <label className="block text-xs text-slate-400">{t('admin.settings.receiptPrinterName')}</label>
                   <input
                     list="printer-options"
                     className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
                     value={form.receipt_printer_name}
                     onChange={(e) => setForm({ ...form, receipt_printer_name: e.target.value })}
-                    placeholder={t('admin.settings.receiptPrinterName')}
+                    placeholder={t('admin.settings.printerNameExample')}
                   />
+                  <p className="text-xs text-slate-500">{t('admin.settings.printerNameHelp')}</p>
+                  <select
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.receipt_printer_type}
+                    onChange={(e) =>
+                      setForm({ ...form, receipt_printer_type: e.target.value as 'ESC_POS' | 'TSPL' })
+                    }
+                  >
+                    <option value="ESC_POS">ESC/POS</option>
+                    <option value="TSPL">TSPL</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-600"
+                    onClick={async () => {
+                      try {
+                        const out = await testReceiptPrintPayload()
+                        await printEscposBase64(out.raw_base64, form.receipt_printer_name || null)
+                        setActionToast({ kind: 'ok', message: t('admin.settings.testReceiptOk') })
+                      } catch (e: unknown) {
+                        const code = (e as Error & { code?: string }).code
+                        setActionToast({
+                          kind: 'err',
+                          message: t(`err.${code || 'TEST_RECEIPT_FAILED'}`),
+                        })
+                      }
+                    }}
+                  >
+                    {t('admin.settings.testReceipt')}
+                  </button>
                   <select
                     className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
                     value={form.receipt_width}
@@ -320,13 +359,43 @@ export function SettingsPage({
               {hwStep === 2 && (
                 <div className="space-y-3">
                   <div className="text-slate-300">{t('admin.settings.hwWizard.step2')}</div>
+                  <label className="block text-xs text-slate-400">{t('admin.settings.labelPrinterName')}</label>
                   <input
                     list="printer-options"
                     className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
                     value={form.label_printer_name}
                     onChange={(e) => setForm({ ...form, label_printer_name: e.target.value })}
-                    placeholder={t('admin.settings.labelPrinterName')}
+                    placeholder={t('admin.settings.labelPrinterNameExample')}
                   />
+                  <select
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.label_printer_type}
+                    onChange={(e) =>
+                      setForm({ ...form, label_printer_type: e.target.value as 'ESC_POS' | 'TSPL' })
+                    }
+                  >
+                    <option value="TSPL">TSPL</option>
+                    <option value="ESC_POS">ESC/POS</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-600"
+                    onClick={async () => {
+                      try {
+                        const out = await testLabelPrintPayload()
+                        await printEscposBase64(out.raw_base64, form.label_printer_name || null)
+                        setActionToast({ kind: 'ok', message: t('admin.settings.testLabelOk') })
+                      } catch (e: unknown) {
+                        const code = (e as Error & { code?: string }).code
+                        setActionToast({
+                          kind: 'err',
+                          message: t(`err.${code || 'TEST_LABEL_FAILED'}`),
+                        })
+                      }
+                    }}
+                  >
+                    {t('admin.settings.testLabel')}
+                  </button>
                   <div className="flex justify-between gap-3 pt-2">
                     <button
                       type="button"
@@ -362,18 +431,21 @@ export function SettingsPage({
                       {t('admin.settings.scannerSerialHint')}
                     </p>
                   )}
+                  <label className="block text-xs text-slate-400">{t('admin.settings.scannerPrefix')}</label>
                   <input
                     className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
                     value={form.scanner_prefix}
                     onChange={(e) => setForm({ ...form, scanner_prefix: e.target.value })}
-                    placeholder={t('admin.settings.scannerPrefix')}
+                    placeholder={t('admin.settings.scannerPrefixExample')}
                   />
+                  <label className="block text-xs text-slate-400">{t('admin.settings.scannerSuffix')}</label>
                   <input
                     className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
                     value={form.scanner_suffix}
                     onChange={(e) => setForm({ ...form, scanner_suffix: e.target.value })}
-                    placeholder={t('admin.settings.scannerSuffix')}
+                    placeholder={t('admin.settings.scannerSuffixExample')}
                   />
+                  <p className="text-xs text-slate-500">{t('admin.settings.scannerSuffixHelp')}</p>
                   <input
                     className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
                     value={scannerTest}
@@ -432,12 +504,14 @@ export function SettingsPage({
         <div className="space-y-3 max-w-2xl">
           <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
             <h3 className="font-medium">{t('admin.bots.telegram')}</h3>
+            <label className="block text-xs text-slate-400">{t('admin.bots.telegramToken')}</label>
             <input
               className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.telegram_bot_token}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, telegram_bot_token: e.target.value }))}
               placeholder={t('admin.bots.telegramToken')}
             />
+            <label className="block text-xs text-slate-400">{t('admin.bots.telegramChatId')}</label>
             <input
               className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.telegram_chat_id}
@@ -447,18 +521,22 @@ export function SettingsPage({
           </div>
           <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
             <h3 className="font-medium">{t('admin.bots.whatsapp')}</h3>
+            <label className="block text-xs text-slate-400">{t('admin.bots.whatsappApiBase')}</label>
             <input
               className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_api_base}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_base: e.target.value }))}
               placeholder={t('admin.bots.whatsappApiBase')}
             />
+            <p className="text-xs text-slate-500">{t('admin.bots.whatsappApiBaseHelp')}</p>
+            <label className="block text-xs text-slate-400">{t('admin.bots.whatsappToken')}</label>
             <input
               className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_api_token}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_token: e.target.value }))}
               placeholder={t('admin.bots.whatsappToken')}
             />
+            <label className="block text-xs text-slate-400">{t('admin.bots.whatsappSender')}</label>
             <input
               className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_sender}

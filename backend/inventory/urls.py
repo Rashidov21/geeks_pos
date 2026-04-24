@@ -8,6 +8,7 @@ from .views import (
     StocktakeSessionListView,
     StocktakeSessionCreateView,
     StocktakeSessionDetailView,
+    StockEventsView,
 )
 
 urlpatterns = [
@@ -18,4 +19,5 @@ urlpatterns = [
     path("stocktake/sessions/<uuid:session_id>/", StocktakeSessionDetailView.as_view()),
     path("stocktake/sessions/<uuid:session_id>/count/", StocktakeCountView.as_view()),
     path("stocktake/sessions/<uuid:session_id>/apply/", StocktakeApplyView.as_view()),
+    path("stock-events/", StockEventsView.as_view()),
 ]

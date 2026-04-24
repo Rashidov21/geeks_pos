@@ -18,8 +18,13 @@ from core.permissions import IsCashier
 from core.permissions import IsAdminOrOwner
 from printing.receipt import sale_to_receipt_dict
 
-from .serializers import CompleteSaleSerializer, SaleHistorySerializer, VoidSaleSerializer
-from .services import complete_sale, void_sale
+from .serializers import (
+    CompleteSaleSerializer,
+    SaleHistorySerializer,
+    SaleReturnSerializer,
+    VoidSaleSerializer,
+)
+from .services import complete_sale, return_sale_lines, void_sale
 from .models import Sale
 
 
@@ -197,3 +202,22 @@ class SaleVoidView(APIView):
                 "note": voided.note,
             }
         )
+
+
+class SaleReturnView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+    def post(self, request, pk):
+        sale = Sale.objects.prefetch_related("lines").get(pk=pk)
+        ser = SaleReturnSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            out = return_sale_lines(
+                sale=sale,
+                user=request.user,
+                lines=[dict(x) for x in ser.validated_data["lines"]],
+                reason=ser.validated_data.get("reason") or "",
+            )
+            return Response(out)
+        except ValueError as e:
+            return Response({"code": "RETURN_FAILED", "detail": str(e)}, status=400)

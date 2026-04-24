@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { BulkGridCell, Category, Color, Product, Size, Variant } from '../api'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
+import { TouchNumpad } from '../components/TouchNumpad'
+import { ActionToast } from '../components/ActionToast'
 
 const STANDARD_COLOR_VALUES = [
   'std_black',
@@ -25,6 +27,8 @@ type WizardVariantForm = {
   stock_qty: number
 }
 
+type MatrixField = 'purchase' | 'list' | 'qty'
+
 export function CatalogPage({
   categories,
   products,
@@ -39,7 +43,6 @@ export function CatalogPage({
   onCreateCategory,
   onCreateProduct,
   onCreateSize,
-  onCreateColor,
   onAdjustStockQuick,
   onPrintSticker,
   onPrintStickerQueue,
@@ -57,11 +60,10 @@ export function CatalogPage({
   includeDeleted: boolean
   setIncludeDeleted: (v: boolean) => void
   page: number
-  onCreateVariantBulk: (payload: { product_id: string; matrix: BulkGridCell[] }) => Promise<void>
+  onCreateVariantBulk: (payload: { product_id: string; matrix: BulkGridCell[] }) => Promise<Variant[]>
   onCreateCategory: (payload: { name_uz: string; name_ru: string }) => Promise<void>
   onCreateProduct: (payload: { category: string; name_uz: string; name_ru: string }) => Promise<void>
   onCreateSize: (payload: { value: string; label_uz: string; label_ru: string; sort_order?: number }) => Promise<void>
-  onCreateColor: (payload: { value: string; label_uz: string; label_ru: string; sort_order?: number }) => Promise<void>
   onAdjustStockQuick: (variantId: string, qtyDelta: number, note: string) => Promise<void>
   onPrintSticker: (variantId: string, copies: number, size: '40x30' | '58mm') => Promise<void>
   onPrintStickerQueue: (
@@ -108,6 +110,11 @@ export function CatalogPage({
   const [queueMap, setQueueMap] = useState<Record<string, number>>({})
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1)
   const [matrixCells, setMatrixCells] = useState<Record<string, { purchase: string; list: string; qty: string }>>({})
+  const [defaultQty, setDefaultQty] = useState('0')
+  const [defaultPurchase, setDefaultPurchase] = useState('0')
+  const [defaultList, setDefaultList] = useState('0')
+  const [addToPrintQueue, setAddToPrintQueue] = useState(true)
+  const [numpadOpen, setNumpadOpen] = useState<null | { field: MatrixField; sizeId: string | 'all' }>(null)
 
   const shoeSizes = useMemo(() => {
     return sizes
@@ -152,6 +159,56 @@ export function CatalogPage({
     return (v || '').replace(/\D/g, '')
   }
 
+  function setCellValue(sizeId: string, field: MatrixField, value: string) {
+    const nextRaw = digitsOnly(value) || '0'
+    setMatrixCells((prev) => {
+      const base = prev[sizeId] || { purchase: '0', list: '0', qty: '0' }
+      return { ...prev, [sizeId]: { ...base, [field]: nextRaw } }
+    })
+  }
+
+  function applyDefaultToAll(field: MatrixField, rawValue: string) {
+    const nextRaw = digitsOnly(rawValue) || '0'
+    setMatrixCells((prev) => {
+      const next = { ...prev }
+      for (const s of shoeSizes) {
+        const base = next[s.id] || { purchase: '0', list: '0', qty: '0' }
+        next[s.id] = { ...base, [field]: nextRaw }
+      }
+      return next
+    })
+  }
+
+  function numpadValue(): string {
+    if (!numpadOpen) return '0'
+    if (numpadOpen.sizeId === 'all') {
+      if (numpadOpen.field === 'qty') return digitsOnly(defaultQty) || '0'
+      if (numpadOpen.field === 'purchase') return digitsOnly(defaultPurchase) || '0'
+      return digitsOnly(defaultList) || '0'
+    }
+    const row = matrixCells[numpadOpen.sizeId] || { purchase: '0', list: '0', qty: '0' }
+    return digitsOnly(row[numpadOpen.field]) || '0'
+  }
+
+  function onNumpadChange(next: string) {
+    const value = digitsOnly(next) || '0'
+    if (!numpadOpen) return
+    if (numpadOpen.sizeId === 'all') {
+      if (numpadOpen.field === 'qty') {
+        setDefaultQty(value)
+        applyDefaultToAll('qty', value)
+      } else if (numpadOpen.field === 'purchase') {
+        setDefaultPurchase(value)
+        applyDefaultToAll('purchase', value)
+      } else {
+        setDefaultList(value)
+        applyDefaultToAll('list', value)
+      }
+      return
+    }
+    setCellValue(numpadOpen.sizeId, numpadOpen.field, value)
+  }
+
   async function submitBulkVariant() {
     const productId = selectedModel || form.product
     if (!productId || !form.color) return
@@ -180,7 +237,11 @@ export function CatalogPage({
     }
     setBusy(true)
     try {
-      await onCreateVariantBulk({ product_id: productId, matrix })
+      const created = await onCreateVariantBulk({ product_id: productId, matrix })
+      if (addToPrintQueue && created.length > 0) {
+        const items = created.map((row) => ({ variant_id: row.id, copies: 1 }))
+        await onPrintStickerQueue(items, '40x30')
+      }
       setToast(t('admin.catalog.wizard.bulkSuccess'))
       setForm((p: WizardVariantForm) => ({
         ...p,
@@ -231,6 +292,10 @@ export function CatalogPage({
       await onCreateCategory({ name_uz: name, name_ru: name })
       setSelectedBrand('')
       setNewBrand('')
+      setToast(t('admin.catalog.brandCreated'))
+    } catch (e: unknown) {
+      const code = (e as Error & { code?: string }).code
+      setToast(t(`err.${code || 'CREATE_CATEGORY_FAILED'}`))
     } finally {
       setBusy(false)
     }
@@ -245,6 +310,10 @@ export function CatalogPage({
       await onCreateProduct({ category: brand, name_uz: model, name_ru: model })
       setSelectedModel('')
       setNewModel('')
+      setToast(t('admin.catalog.modelCreated'))
+    } catch (e: unknown) {
+      const code = (e as Error & { code?: string }).code
+      setToast(t(`err.${code || 'CREATE_PRODUCT_FAILED'}`))
     } finally {
       setBusy(false)
     }
@@ -260,6 +329,10 @@ export function CatalogPage({
         }
       }
       /* Standart ranglar migratsiya orqali (std_*) bazaga qo'shiladi */
+      setToast(t('admin.catalog.seedSuccess'))
+    } catch (e: unknown) {
+      const code = (e as Error & { code?: string }).code
+      setToast(t(`err.${code || 'CREATE_SIZE_FAILED'}`))
     } finally {
       setSeedBusy(false)
     }
@@ -297,7 +370,7 @@ export function CatalogPage({
           </label>
         </div>
       </div>
-      {toast && <div className="px-3 py-2 rounded text-sm border border-slate-700 bg-slate-900">{toast}</div>}
+      {toast && <ActionToast kind="info" message={toast} />}
       <p className="text-xs text-slate-400">{t('admin.catalog.hint')}</p>
 
       <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-4">
@@ -449,6 +522,35 @@ export function CatalogPage({
           <div className="space-y-4">
             <div className="text-base text-slate-100">{t('admin.catalog.wizard.step3MatrixTitle')}</div>
             <p className="text-sm text-slate-400">{t('admin.catalog.wizard.step3MatrixHint')}</p>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-3">
+              <div className="text-sm font-medium text-slate-200">{t('admin.catalog.wizard.applyDefaults')}</div>
+              <div className="grid sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  className="touch-btn min-h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left"
+                  onClick={() => setNumpadOpen({ field: 'qty', sizeId: 'all' })}
+                >
+                  <div className="text-xs text-slate-500">{t('admin.catalog.wizard.defaultQty')}</div>
+                  <div className="text-lg font-semibold tabular-nums">{digitsOnly(defaultQty) || '0'}</div>
+                </button>
+                <button
+                  type="button"
+                  className="touch-btn min-h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left"
+                  onClick={() => setNumpadOpen({ field: 'purchase', sizeId: 'all' })}
+                >
+                  <div className="text-xs text-slate-500">{t('admin.catalog.wizard.defaultCost')}</div>
+                  <div className="text-lg font-semibold tabular-nums">{formatMoney(defaultPurchase)}</div>
+                </button>
+                <button
+                  type="button"
+                  className="touch-btn min-h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left"
+                  onClick={() => setNumpadOpen({ field: 'list', sizeId: 'all' })}
+                >
+                  <div className="text-xs text-slate-500">{t('admin.catalog.wizard.defaultSale')}</div>
+                  <div className="text-lg font-semibold tabular-nums">{formatMoney(defaultList)}</div>
+                </button>
+              </div>
+            </div>
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm min-w-[32rem]">
                 <thead className="bg-slate-950 text-slate-400">
@@ -466,43 +568,31 @@ export function CatalogPage({
                       <tr key={s.id} className="border-t border-slate-800">
                         <td className="p-2 font-semibold text-slate-200">{s.label_uz}</td>
                         <td className="p-2">
-                          <input
+                          <button
+                            type="button"
                             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
-                            inputMode="numeric"
-                            value={formatMoney(digitsOnly(cell.purchase) || '0')}
-                            onChange={(e) =>
-                              setMatrixCells((prev) => ({
-                                ...prev,
-                                [s.id]: { ...cell, purchase: digitsOnly(e.target.value) || '0' },
-                              }))
-                            }
-                          />
+                            onClick={() => setNumpadOpen({ field: 'purchase', sizeId: s.id })}
+                          >
+                            {formatMoney(digitsOnly(cell.purchase) || '0')}
+                          </button>
                         </td>
                         <td className="p-2">
-                          <input
+                          <button
+                            type="button"
                             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
-                            inputMode="numeric"
-                            value={formatMoney(digitsOnly(cell.list) || '0')}
-                            onChange={(e) =>
-                              setMatrixCells((prev) => ({
-                                ...prev,
-                                [s.id]: { ...cell, list: digitsOnly(e.target.value) || '0' },
-                              }))
-                            }
-                          />
+                            onClick={() => setNumpadOpen({ field: 'list', sizeId: s.id })}
+                          >
+                            {formatMoney(digitsOnly(cell.list) || '0')}
+                          </button>
                         </td>
                         <td className="p-2">
-                          <input
+                          <button
+                            type="button"
                             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
-                            inputMode="numeric"
-                            value={digitsOnly(cell.qty)}
-                            onChange={(e) =>
-                              setMatrixCells((prev) => ({
-                                ...prev,
-                                [s.id]: { ...cell, qty: digitsOnly(e.target.value) },
-                              }))
-                            }
-                          />
+                            onClick={() => setNumpadOpen({ field: 'qty', sizeId: s.id })}
+                          >
+                            {digitsOnly(cell.qty) || '0'}
+                          </button>
                         </td>
                       </tr>
                     )
@@ -511,6 +601,14 @@ export function CatalogPage({
               </table>
             </div>
             <p className="text-xs text-slate-500">{t('admin.catalog.barcodeAuto')}</p>
+            <label className="touch-btn inline-flex items-center gap-2 min-h-12 px-3 rounded-xl border border-slate-700 bg-slate-950 text-sm">
+              <input
+                type="checkbox"
+                checked={addToPrintQueue}
+                onChange={(e) => setAddToPrintQueue(e.target.checked)}
+              />
+              {t('admin.catalog.wizard.addToQueueAfterSave')}
+            </label>
             <div className="flex flex-wrap justify-between gap-3 pt-2">
               <button
                 type="button"
@@ -602,7 +700,15 @@ export function CatalogPage({
                     <button
                       type="button"
                       className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
-                      onClick={() => void onToggleVariant(v)}
+                      onClick={async () => {
+                        try {
+                          await onToggleVariant(v)
+                          setToast(t('admin.catalog.toggleSuccess'))
+                        } catch (e: unknown) {
+                          const code = (e as Error & { code?: string }).code
+                          setToast(t(`err.${code || 'API_ERROR'}`))
+                        }
+                      }}
                     >
                       {v.is_active ? t('admin.catalog.deactivate') : t('admin.catalog.activate')}
                     </button>
@@ -677,9 +783,14 @@ export function CatalogPage({
                 className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
                 onClick={async () => {
                   if (quickDelta === 0) return
-                  await onAdjustStockQuick(quickAdjust.id, quickDelta, 'Quick adjust')
-                  setToast(t('admin.inventory.adjustSuccess'))
-                  setQuickAdjust(null)
+                  try {
+                    await onAdjustStockQuick(quickAdjust.id, quickDelta, 'Quick adjust')
+                    setToast(t('admin.inventory.adjustSuccess'))
+                    setQuickAdjust(null)
+                  } catch (e: unknown) {
+                    const code = (e as Error & { code?: string }).code
+                    setToast(t(`err.${code || 'INVENTORY_ADJUST_FAILED'}`))
+                  }
                 }}
               >
                 {t('admin.common.save')}
@@ -801,12 +912,45 @@ export function CatalogPage({
                 type="button"
                 className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
                 onClick={async () => {
-                  await onUpdateVariant(editing, {
-                    list_price: editPrice,
-                    purchase_price: editPurchase,
-                  })
-                  setEditing(null)
+                  try {
+                    await onUpdateVariant(editing, {
+                      list_price: editPrice,
+                      purchase_price: editPurchase,
+                    })
+                    setToast(t('admin.catalog.updateSuccess'))
+                    setEditing(null)
+                  } catch (e: unknown) {
+                    const code = (e as Error & { code?: string }).code
+                    setToast(t(`err.${code || 'API_ERROR'}`))
+                  }
                 }}
+              >
+                {t('admin.common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {numpadOpen && (
+        <div className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <TouchNumpad
+              className="rounded-xl border border-slate-800 bg-slate-950 p-3"
+              value={numpadValue()}
+              onChange={onNumpadChange}
+              label={
+                numpadOpen.field === 'qty'
+                  ? t('admin.catalog.wizard.defaultQty')
+                  : numpadOpen.field === 'purchase'
+                    ? t('admin.catalog.wizard.defaultCost')
+                    : t('admin.catalog.wizard.defaultSale')
+              }
+            />
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="touch-btn min-h-12 px-5 rounded-xl bg-emerald-700 border border-emerald-500 font-medium"
+                onClick={() => setNumpadOpen(null)}
               >
                 {t('admin.common.save')}
               </button>

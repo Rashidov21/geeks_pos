@@ -2,6 +2,7 @@ import type { SaleHistoryRow } from '../api'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
+import { ActionToast } from '../components/ActionToast'
 
 export function SalesHistoryPage({
   sales,
@@ -11,6 +12,7 @@ export function SalesHistoryPage({
   onFilter,
   onExport,
   onVoid,
+  onReprint,
   canVoid,
   canExport = true,
 }: {
@@ -19,8 +21,9 @@ export function SalesHistoryPage({
   page: number
   onPage: (p: number) => void
   onFilter: (from: string, to: string, q: string) => void
-  onExport: () => void
+  onExport: () => Promise<void>
   onVoid: (saleId: string, reason: string) => Promise<void>
+  onReprint: (saleId: string) => Promise<void>
   canVoid: boolean
   canExport?: boolean
 }) {
@@ -35,6 +38,7 @@ export function SalesHistoryPage({
     message: string
   } | null>(null)
   const [voidBusy, setVoidBusy] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
   const maxPage = Math.max(1, Math.ceil(count / 20))
 
   useEffect(() => {
@@ -45,17 +49,7 @@ export function SalesHistoryPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.sales.title')}</h2>
-      {actionToast && (
-        <div
-          className={`px-3 py-2 rounded text-sm border ${
-            actionToast.kind === 'ok'
-              ? 'bg-emerald-950 border-emerald-700 text-emerald-100'
-              : 'bg-red-950 border-red-700 text-red-100'
-          }`}
-        >
-          {actionToast.message}
-        </div>
-      )}
+      {actionToast && <ActionToast kind={actionToast.kind} message={actionToast.message} />}
       <div className="flex flex-wrap gap-2 items-center">
         <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={to} onChange={(e) => setTo(e.target.value)} />
@@ -66,8 +60,25 @@ export function SalesHistoryPage({
           placeholder={t('admin.sales.searchPlaceholder')}
         />
         {canExport && (
-          <button type="button" className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-700 font-medium" onClick={onExport}>
-            {t('admin.sales.exportCsv')}
+          <button
+            type="button"
+            disabled={exportBusy}
+            className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-700 font-medium disabled:opacity-50"
+            onClick={async () => {
+              setExportBusy(true)
+              try {
+                await onExport()
+                setActionToast({ kind: 'ok', message: t('admin.sales.exportSuccess') })
+              } catch (e: unknown) {
+                const code = (e as Error & { code?: string }).code
+                const message = t(`err.${code || 'EXPORT_SALES_FAILED'}`, { defaultValue: t('err.API_ERROR') })
+                setActionToast({ kind: 'err', message })
+              } finally {
+                setExportBusy(false)
+              }
+            }}
+          >
+            {exportBusy ? t('admin.common.loading') : t('admin.sales.exportCsv')}
           </button>
         )}
       </div>
@@ -93,15 +104,33 @@ export function SalesHistoryPage({
                 <td className="p-2">{t(`status.${s.status}`, { defaultValue: s.status })}</td>
                 <td className="p-2 text-right">{formatMoney(s.grand_total)}</td>
                 <td className="p-2 text-right">
-                  {canVoid && s.status !== 'VOIDED' && (
+                  <div className="inline-flex items-center gap-2">
                     <button
                       type="button"
-                      className="touch-btn min-h-10 px-3 rounded-xl bg-red-800 border border-red-600 text-sm font-medium"
-                      onClick={() => setVoiding(s)}
+                      className="touch-btn min-h-10 px-3 rounded-xl bg-slate-800 border border-slate-600 text-sm font-medium"
+                      onClick={async () => {
+                        try {
+                          await onReprint(s.id)
+                          setActionToast({ kind: 'ok', message: t('admin.sales.reprintSuccess') })
+                        } catch (e: unknown) {
+                          const code = (e as Error & { code?: string }).code
+                          const message = t(`err.${code || 'PRINT_FAILED'}`, { defaultValue: t('msg.printFailed') })
+                          setActionToast({ kind: 'err', message })
+                        }
+                      }}
                     >
-                      {t('admin.sales.void')}
+                      {t('admin.sales.reprint')}
                     </button>
-                  )}
+                    {canVoid && s.status !== 'VOIDED' && (
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-3 rounded-xl bg-red-800 border border-red-600 text-sm font-medium"
+                        onClick={() => setVoiding(s)}
+                      >
+                        {t('admin.sales.void')}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

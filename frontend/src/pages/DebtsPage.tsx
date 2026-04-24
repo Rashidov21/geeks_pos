@@ -3,6 +3,7 @@ import Decimal from 'decimal.js'
 import type { DebtRow } from '../api'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
+import { ActionToast } from '../components/ActionToast'
 
 export function DebtsPage({
   debts,
@@ -15,6 +16,8 @@ export function DebtsPage({
 }) {
   const { t } = useTranslation()
   const [amountByCustomer, setAmountByCustomer] = useState<Record<string, string>>({})
+  const [busyCustomerId, setBusyCustomerId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null)
   const totals = useMemo(() => {
     const grouped: Record<string, Decimal> = {}
     for (const d of debts) {
@@ -26,6 +29,7 @@ export function DebtsPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.debts.title')}</h2>
+      {toast && <ActionToast kind={toast.kind} message={toast.message} />}
       <p className="text-xs text-slate-400">{t('admin.debts.hint')}</p>
       <div className="rounded border border-slate-700 overflow-hidden">
         <table className="w-full text-sm">
@@ -62,10 +66,20 @@ export function DebtsPage({
                       />
                       <button
                         type="button"
+                        disabled={busyCustomerId === customerId}
                         className="touch-btn min-h-12 px-4 rounded-xl bg-emerald-700 border border-emerald-500 text-sm font-medium"
-                        onClick={() =>
-                          void onRepay(customerId, amountByCustomer[customerId] || '0')
-                        }
+                        onClick={async () => {
+                          setBusyCustomerId(customerId)
+                          try {
+                            await onRepay(customerId, amountByCustomer[customerId] || '0')
+                            setToast({ kind: 'ok', message: t('admin.debts.repaySuccess') })
+                          } catch (e: unknown) {
+                            const code = (e as Error & { code?: string }).code
+                            setToast({ kind: 'err', message: t(`err.${code || 'DEBT_PAYMENT_FAILED'}`) })
+                          } finally {
+                            setBusyCustomerId(null)
+                          }
+                        }}
                       >
                         {t('admin.debts.repay')}
                       </button>
@@ -74,8 +88,20 @@ export function DebtsPage({
                   <td className="p-2 text-right">
                     <button
                       type="button"
+                      disabled={busyCustomerId === customerId}
                       className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600 text-sm"
-                      onClick={() => void onSendReminder(customerId, total.toFixed(0))}
+                      onClick={async () => {
+                        setBusyCustomerId(customerId)
+                        try {
+                          await onSendReminder(customerId, total.toFixed(0))
+                          setToast({ kind: 'ok', message: t('admin.debts.reminderSuccess') })
+                        } catch (e: unknown) {
+                          const code = (e as Error & { code?: string }).code
+                          setToast({ kind: 'err', message: t(`err.${code || 'WHATSAPP_SEND_FAILED'}`) })
+                        } finally {
+                          setBusyCustomerId(null)
+                        }
+                      }}
                     >
                       {t('admin.debts.reminder')}
                     </button>

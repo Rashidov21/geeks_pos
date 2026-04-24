@@ -1,6 +1,7 @@
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils.dateparse import parse_datetime
 
 from catalog.models import ProductVariant
 from core.exceptions import InsufficientStock
@@ -143,3 +144,35 @@ class StocktakeSessionListView(APIView):
             for s in qs[:50]
         ]
         return Response(data)
+
+
+class StockEventsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        since_raw = (request.query_params.get("since") or "").strip()
+        qs = InventoryMovement.objects.select_related("variant").filter(
+            type__in=[
+                InventoryMovement.Type.SALE,
+                InventoryMovement.Type.RETURN,
+                InventoryMovement.Type.ADJUST,
+                InventoryMovement.Type.IN,
+            ]
+        )
+        if since_raw:
+            since_dt = parse_datetime(since_raw)
+            if since_dt is not None:
+                qs = qs.filter(created_at__gt=since_dt)
+        rows = qs.order_by("created_at")[:200]
+        data = [
+            {
+                "movement_id": str(m.id),
+                "variant_id": str(m.variant_id),
+                "qty_delta": m.qty_delta,
+                "type": m.type,
+                "stock_qty": m.variant.stock_qty,
+                "created_at": m.created_at,
+            }
+            for m in rows
+        ]
+        return Response({"events": data})

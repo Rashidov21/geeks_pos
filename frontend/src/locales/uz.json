@@ -137,6 +137,11 @@
   "admin.catalog.wizard.step2ColorHint": "Keyingi qadamda 36–45 o'lchamlar jadvali ochiladi.",
   "admin.catalog.wizard.step3MatrixTitle": "O'lcham matritsasi (36–45)",
   "admin.catalog.wizard.step3MatrixHint": "Butun sonlar (so'm). Bo'sh qoldirilgan qatorlar yaratilmaydi.",
+  "admin.catalog.wizard.applyDefaults": "Hammasiga qo'llash (bir marta yozib barcha o'lchamlarga qo'llash)",
+  "admin.catalog.wizard.defaultQty": "Default soni",
+  "admin.catalog.wizard.defaultCost": "Default kirim narxi",
+  "admin.catalog.wizard.defaultSale": "Default sotuv narxi",
+  "admin.catalog.wizard.addToQueueAfterSave": "Saqlagandan keyin stiker queuega qo'shilsin",
   "admin.catalog.wizard.submitBulk": "Barcha variantlarni saqlash",
   "admin.catalog.wizard.bulkSuccess": "Matritsa saqlandi",
   "admin.catalog.wizard.bulkEmpty": "Kamida bitta qatorni to'ldiring",
@@ -171,6 +176,11 @@
   "admin.catalog.stockUnit": "ta",
   "admin.catalog.quickAdjust": "Qoldiqni tezkor tuzatish",
   "admin.catalog.queueAdd": "Navbatga qo'shish",
+  "admin.catalog.brandCreated": "Brend yaratildi",
+  "admin.catalog.modelCreated": "Model yaratildi",
+  "admin.catalog.seedSuccess": "Standart o'lchamlar tekshirildi",
+  "admin.catalog.toggleSuccess": "Variant holati yangilandi",
+  "admin.catalog.updateSuccess": "Variant narxlari saqlandi",
   "admin.debts.title": "Qarzlar (FIFO to'lov)",
   "admin.debts.hint": "Mijozlar qarzi birinchi ochilgan qarzdan boshlab yopiladi.",
   "admin.debts.customer": "Mijoz",
@@ -181,10 +191,13 @@
   "admin.debts.reminder": "WhatsApp eslatish",
   "admin.debts.amountPlaceholder": "Summa",
   "admin.debts.empty": "Hozircha ochiq qarzlar yo'q.",
+  "admin.debts.repaySuccess": "To'lov saqlandi",
+  "admin.debts.reminderSuccess": "WhatsApp eslatma yuborildi",
   "admin.sales.title": "Sotuvlar tarixi",
   "admin.sales.hint": "Sana yoki qidiruv filtri bilan natijani toraytiring.",
   "admin.sales.searchPlaceholder": "Sale ID / kassir / status bo'yicha qidirish",
   "admin.sales.exportCsv": "CSV eksport",
+  "admin.sales.exportSuccess": "CSV yuklab olish boshlandi",
   "admin.sales.saleId": "Savdo ID",
   "admin.sales.cashier": "Kassir",
   "admin.sales.time": "Vaqt",
@@ -192,10 +205,12 @@
   "admin.sales.total": "Jami",
   "admin.sales.action": "Amal",
   "admin.sales.void": "Bekor qilish",
+  "admin.sales.reprint": "Qayta chop etish",
   "admin.sales.empty": "Sotuvlar topilmadi. Sana intervalini kengaytiring.",
   "admin.sales.voidTitle": "Savdoni bekor qilish: {{saleId}}",
   "admin.sales.voidReason": "Bekor qilish sababi",
   "admin.sales.voidSuccess": "Savdo muvaffaqiyatli bekor qilindi",
+  "admin.sales.reprintSuccess": "Chek qayta chop etishga yuborildi",
   "admin.sales.voiding": "Bekor qilinmoqda...",
   "admin.sales.confirmVoid": "Bekor qilishni tasdiqlash",
   "admin.settings.title": "Do'kon sozlamalari",
@@ -263,6 +278,20 @@
   "admin.settings.statusLabelDefault": "Stiker: Windows asosiy printer ishlatiladi",
   "admin.settings.statusLabelMissing": "Stiker printeri: ro'yxatda yo'q",
   "admin.settings.statusLabelNoList": "Stiker: printer ro'yxati mavjud emas (Tauri)",
+  "admin.settings.brandNameExample": "Masalan: Geeks Shoes",
+  "admin.settings.phoneExample": "Masalan: +998 90 123 45 67",
+  "admin.settings.addressExample": "Masalan: Toshkent, Chilonzor",
+  "admin.settings.footerExample": "Masalan: Xaridingiz uchun rahmat!",
+  "admin.settings.printerNameExample": "Masalan: XP-80",
+  "admin.settings.labelPrinterNameExample": "Masalan: XP-365B",
+  "admin.settings.printerNameHelp": "Printer nomi Windows ro'yxatidagi nom bilan bir xil bo'lishi kerak.",
+  "admin.settings.scannerPrefixExample": "Masalan: ]C1",
+  "admin.settings.scannerSuffixExample": "Masalan: \\t yoki \\n",
+  "admin.settings.scannerSuffixHelp": "Tab uchun \\t, Enter uchun \\n kiriting.",
+  "admin.settings.testReceipt": "Chek printerini test qilish",
+  "admin.settings.testLabel": "Stiker printerini test qilish",
+  "admin.settings.testReceiptOk": "Test chek printerga yuborildi",
+  "admin.settings.testLabelOk": "Test stiker printerga yuborildi",
   "admin.inventory.title": "Inventarizatsiya va omborga kirim",
   "admin.inventory.hint": "Kirim/korreksiya amallarini shu yerda bajaring.",
   "admin.inventory.receiveTitle": "Omborga kirim",
@@ -285,8 +314,12 @@
   "admin.bots.whatsappSender": "WhatsApp sender",
   "admin.bots.save": "Bot sozlamalarini saqlash",
   "admin.bots.saveSuccess": "Bot sozlamalari saqlandi",
-  "admin.bots.sendZReport": "Telegramga Z-report yuborish",
+  "admin.bots.sendZReport": "Z-Report yuborish",
   "admin.bots.zReportSent": "Z-report yuborildi",
+  "admin.bots.zReportSentTelegram": "Z-Report Telegramga yuborildi",
+  "admin.bots.zReportSentWhatsapp": "Z-Report WhatsAppga yuborildi",
+  "admin.bots.zReportSentBoth": "Z-Report Telegram va WhatsAppga yuborildi",
+  "admin.bots.whatsappApiBaseHelp": "Masalan: https://api.example.com",
   "status.OPEN": "Ochiq",
   "status.APPLIED": "Qo'llangan",
   "status.PAID": "To'langan",
@@ -310,11 +343,19 @@
   ,"err.FETCH_INTEGRATIONS_FAILED": "Integratsiya sozlamalari yuklanmadi."
   ,"err.UPDATE_INTEGRATIONS_FAILED": "Integratsiya sozlamalari saqlanmadi."
   ,"err.TELEGRAM_SEND_FAILED": "Telegramga yuborib bo'lmadi."
+  ,"err.ZREPORT_SEND_FAILED": "Z-Report yuborilmadi."
   ,"err.WHATSAPP_SEND_FAILED": "WhatsApp eslatma yuborilmadi."
+  ,"err.CUSTOMER_NOT_FOUND": "Mijoz topilmadi."
+  ,"err.UNKNOWN": "Noma'lum xatolik."
+  ,"err.TEST_RECEIPT_FAILED": "Test chek yuborilmadi."
+  ,"err.TEST_LABEL_FAILED": "Test stiker yuborilmadi."
   ,"err.INVENTORY_RECEIVE_FAILED": "Omborga kirim saqlanmadi."
   ,"err.INVENTORY_ADJUST_FAILED": "Qoldiq sozlash saqlanmadi."
   ,"err.POS_PRICE_UPDATE_FAILED": "POS narxini yangilab bo'lmadi."
   ,"err.LABEL_PRINT_FAILED": "Stiker chop etilmadi."
   ,"err.LABEL_QUEUE_FAILED": "Stikerlar navbatini chop etib bo'lmadi."
   ,"err.FETCH_HARDWARE_CONFIG_FAILED": "Qurilma sozlamalari yuklanmadi."
+  ,"err.FETCH_STOCK_EVENTS_FAILED": "Stock sinxronizatsiyasi yuklanmadi."
+  ,"err.RETURN_FAILED": "Qaytarish bajarilmadi."
+  ,"err.PRINT_FAILED": "Chop etishda xatolik."
 }

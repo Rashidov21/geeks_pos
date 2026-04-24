@@ -5,6 +5,7 @@ from debt.models import Customer
 from catalog.models import Category, Color, Product, ProductVariant, Size
 from decimal import Decimal
 from sales.models import Sale
+from reports.services import sales_metrics
 
 
 def _mk_user(username: str, role: str) -> User:
@@ -117,7 +118,7 @@ def test_integration_actions_owner_allowed_with_stub(client, monkeypatch):
 
     monkeypatch.setattr(
         "integrations.views.send_daily_z_report",
-        lambda: {"ok": True, "details": "ok"},
+        lambda **kwargs: {"ok": True, "details": "ok", "channel_results": {"telegram": {"ok": True}}},
     )
     monkeypatch.setattr(
         "integrations.views.send_whatsapp_reminder",
@@ -126,6 +127,8 @@ def test_integration_actions_owner_allowed_with_stub(client, monkeypatch):
 
     z = client.post("/api/integrations/telegram/send-z-report/", data={}, content_type="application/json")
     assert z.status_code == 200
+    z2 = client.post("/api/integrations/z-report/send/", data={}, content_type="application/json")
+    assert z2.status_code == 200
 
     w = client.post(
         "/api/integrations/whatsapp/remind/",
@@ -133,4 +136,92 @@ def test_integration_actions_owner_allowed_with_stub(client, monkeypatch):
         content_type="application/json",
     )
     assert w.status_code == 200
+
+
+@pytest.mark.django_db
+def test_whatsapp_reminder_customer_not_found_controlled_error(client):
+    owner = _mk_user("owner_integ_404", "OWNER")
+    client.force_login(owner)
+    r = client.post(
+        "/api/integrations/whatsapp/remind/",
+        data={"customer_id": "00000000-0000-0000-0000-000000000001", "amount": "1000"},
+        content_type="application/json",
+    )
+    assert r.status_code == 404
+    assert r.json()["code"] == "CUSTOMER_NOT_FOUND"
+
+
+@pytest.mark.django_db
+def test_dashboard_financial_contract_completed_only_and_discount_aware(client):
+    owner = _mk_user("owner_fin_contract", "OWNER")
+    cashier = _mk_user("cashier_fin_contract", "CASHIER")
+    variant = _mk_variant()
+    client.force_login(cashier)
+    r1 = client.post(
+        "/api/sales/complete/",
+        data={
+            "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "10000"}],
+            "payments": [{"method": "CASH", "amount": "140000"}],
+            "expected_grand_total": "140000",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="fin-contract-1",
+    )
+    assert r1.status_code == 200
+    r2 = client.post(
+        "/api/sales/complete/",
+        data={
+            "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+            "payments": [{"method": "CASH", "amount": "150000"}],
+            "expected_grand_total": "150000",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="fin-contract-2",
+    )
+    assert r2.status_code == 200
+    sale2 = r2.json()["sale_id"]
+    client.force_login(owner)
+    v = client.post(
+        f"/api/sales/{sale2}/void/",
+        data={"reason": "test-void"},
+        content_type="application/json",
+    )
+    assert v.status_code == 200
+
+    summary = client.get("/api/reports/summary/")
+    assert summary.status_code == 200
+    totals = summary.json()["totals"]
+    assert totals["sales_count"] == 1
+    assert totals["void_count"] == 1
+    assert totals["sales_amount"] == "140000"
+    assert totals["total_discounts"] == "10000"
+    assert totals["gross_profit"] == "40000"
+
+
+@pytest.mark.django_db
+def test_sales_metrics_parity_cash_card_debt(client):
+    cashier = _mk_user("cashier_metrics", "CASHIER")
+    variant = _mk_variant()
+    client.force_login(cashier)
+    r = client.post(
+        "/api/sales/complete/",
+        data={
+            "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+            "payments": [
+                {"method": "CASH", "amount": "100000"},
+                {"method": "CARD", "amount": "30000"},
+                {"method": "DEBT", "amount": "20000"},
+            ],
+            "customer": {"name": "Metrics Customer", "phone_normalized": "998901010101"},
+            "expected_grand_total": "150000",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="metrics-pay-split",
+    )
+    assert r.status_code == 200
+    m = sales_metrics()
+    assert str(m["sales_amount"]) == "150000"
+    assert str(m["cash_total"]) == "100000"
+    assert str(m["card_total"]) == "30000"
+    assert str(m["debt_total"]) == "20000"
 

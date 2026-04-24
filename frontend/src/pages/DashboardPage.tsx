@@ -2,6 +2,7 @@ import type { DashboardSummary } from '../api'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
+import { ActionToast } from '../components/ActionToast'
 
 export function DashboardPage({
   summary,
@@ -11,14 +12,14 @@ export function DashboardPage({
   onSendZReport: () => Promise<unknown>
 }) {
   const { t } = useTranslation()
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const totals = summary?.totals
 
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.dashboard.title')}</h2>
-      {toast && <div className="px-3 py-2 rounded border border-slate-700 bg-slate-900 text-sm">{toast}</div>}
+      {toast && <ActionToast kind={toast.kind} message={toast.message} />}
       <div className="flex justify-end">
         <button
           type="button"
@@ -27,11 +28,24 @@ export function DashboardPage({
           onClick={async () => {
             setBusy(true)
             try {
-              await onSendZReport()
-              setToast(t('admin.bots.zReportSent'))
+              const out = (await onSendZReport()) as {
+                ok?: boolean
+                channel_results?: Partial<Record<'telegram' | 'whatsapp', { ok: boolean }>>
+              }
+              const tg = out.channel_results?.telegram?.ok
+              const wa = out.channel_results?.whatsapp?.ok
+              const bothOk = tg && wa
+              const msg = bothOk
+                ? t('admin.bots.zReportSentBoth')
+                : tg
+                  ? t('admin.bots.zReportSentTelegram')
+                  : wa
+                    ? t('admin.bots.zReportSentWhatsapp')
+                    : t('admin.bots.zReportSent')
+              setToast({ kind: 'ok', message: msg })
             } catch (e: unknown) {
               const code = (e as Error & { code?: string }).code
-              setToast(t(`err.${code || 'TELEGRAM_SEND_FAILED'}`))
+              setToast({ kind: 'err', message: t(`err.${code || 'ZREPORT_SEND_FAILED'}`) })
             } finally {
               setBusy(false)
             }

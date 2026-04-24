@@ -93,12 +93,21 @@ class BulkGridCellSerializer(serializers.Serializer):
     color_id = serializers.UUIDField()
     purchase_price = serializers.DecimalField(max_digits=12, decimal_places=2)
     list_price = serializers.DecimalField(max_digits=12, decimal_places=2)
-    initial_qty = serializers.IntegerField(required=False, default=0)
+    initial_qty = serializers.IntegerField(required=False, default=0, min_value=0)
 
 
 class BulkGridSerializer(serializers.Serializer):
     product_id = serializers.UUIDField()
     matrix = BulkGridCellSerializer(many=True)
+
+    def validate_matrix(self, value):
+        seen: set[tuple[str, str]] = set()
+        for row in value:
+            key = (str(row["size_id"]), str(row["color_id"]))
+            if key in seen:
+                raise serializers.ValidationError("Duplicate size/color pair in matrix payload.")
+            seen.add(key)
+        return value
 
 
 class PosPriceUpdateSerializer(serializers.Serializer):
