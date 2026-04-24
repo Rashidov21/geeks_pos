@@ -34,7 +34,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         <div className="flex justify-end gap-2">
           <button
             type="button"
-            className={`text-xs px-2 py-1 rounded border ${
+            className={`touch-btn text-sm px-4 py-2 rounded-xl border ${
               i18n.language.startsWith('uz')
                 ? 'bg-emerald-700 border-emerald-500 text-white'
                 : 'bg-slate-700 border-slate-600 text-slate-200'
@@ -45,7 +45,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           </button>
           <button
             type="button"
-            className={`text-xs px-2 py-1 rounded border ${
+            className={`touch-btn text-sm px-4 py-2 rounded-xl border ${
               i18n.language.startsWith('ru')
                 ? 'bg-emerald-700 border-emerald-500 text-white'
                 : 'bg-slate-700 border-slate-600 text-slate-200'
@@ -59,7 +59,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         <label className="block text-sm">
           {t('auth.username')}
           <input
-            className="mt-1 w-full rounded bg-slate-950 border border-slate-600 px-3 py-2"
+            className="touch-btn mt-1 w-full min-h-14 rounded-xl bg-slate-950 border border-slate-600 px-4 py-3 text-base"
             value={u}
             onChange={(e) => setU(e.target.value)}
             autoComplete="username"
@@ -70,7 +70,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           {t('auth.password')}
           <input
             type="password"
-            className="mt-1 w-full rounded bg-slate-950 border border-slate-600 px-3 py-2"
+            className="touch-btn mt-1 w-full min-h-14 rounded-xl bg-slate-950 border border-slate-600 px-4 py-3 text-base"
             value={p}
             onChange={(e) => setP(e.target.value)}
             autoComplete="current-password"
@@ -81,7 +81,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         <button
           type="submit"
           disabled={busy}
-          className="w-full py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-medium"
+          className="touch-btn w-full min-h-14 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-lg font-semibold"
         >
           {busy ? t('auth.logging') : t('auth.login')}
         </button>

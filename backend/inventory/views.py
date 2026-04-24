@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 
 from catalog.models import ProductVariant
 from core.exceptions import InsufficientStock
-from core.permissions import IsAdminOrOwner, IsCashier
+from core.permissions import IsAdminOrOwner
 
 from .models import InventoryMovement, StocktakeSession
 from .serializers import (
@@ -23,7 +23,7 @@ from .services import (
 
 
 class ReceiveView(APIView):
-    permission_classes = [IsAuthenticated, IsCashier]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request):
         ser = ReceiveSerializer(data=request.data)
@@ -41,7 +41,7 @@ class ReceiveView(APIView):
 
 
 class AdjustView(APIView):
-    permission_classes = [IsAuthenticated, IsCashier]
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request):
         ser = AdjustSerializer(data=request.data)

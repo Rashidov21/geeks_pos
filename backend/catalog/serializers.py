@@ -63,6 +63,31 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class PosProductVariantSerializer(serializers.ModelSerializer):
+    """POS / cashier: no purchase_price (financial field)."""
+
+    product_name_uz = serializers.CharField(source="product.name_uz", read_only=True)
+    size_label_uz = serializers.CharField(source="size.label_uz", read_only=True)
+    color_label_uz = serializers.CharField(source="color.label_uz", read_only=True)
+
+    class Meta:
+        model = ProductVariant
+        fields = [
+            "id",
+            "product",
+            "product_name_uz",
+            "size",
+            "size_label_uz",
+            "color",
+            "color_label_uz",
+            "barcode",
+            "list_price",
+            "stock_qty",
+            "is_active",
+            "deleted_at",
+        ]
+
+
 class BulkGridCellSerializer(serializers.Serializer):
     size_id = serializers.UUIDField()
     color_id = serializers.UUIDField()
@@ -74,3 +99,7 @@ class BulkGridCellSerializer(serializers.Serializer):
 class BulkGridSerializer(serializers.Serializer):
     product_id = serializers.UUIDField()
     matrix = BulkGridCellSerializer(many=True)
+
+
+class PosPriceUpdateSerializer(serializers.Serializer):
+    list_price = serializers.DecimalField(max_digits=12, decimal_places=2)

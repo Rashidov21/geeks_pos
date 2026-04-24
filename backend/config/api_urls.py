@@ -9,4 +9,6 @@ urlpatterns = [
     path("debt/", include("debt.urls")),
     path("printing/", include("printing.urls")),
     path("sync/", include("sync.urls")),
+    path("reports/", include("reports.urls")),
+    path("integrations/", include("integrations.urls")),
 ]

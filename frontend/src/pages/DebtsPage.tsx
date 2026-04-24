@@ -2,13 +2,16 @@ import { useMemo, useState } from 'react'
 import Decimal from 'decimal.js'
 import type { DebtRow } from '../api'
 import { useTranslation } from 'react-i18next'
+import { formatMoney } from '../utils/money'
 
 export function DebtsPage({
   debts,
   onRepay,
+  onSendReminder,
 }: {
   debts: DebtRow[]
   onRepay: (customerId: string, amount: string) => Promise<void>
+  onSendReminder: (customerId: string, amount: string) => Promise<void>
 }) {
   const { t } = useTranslation()
   const [amountByCustomer, setAmountByCustomer] = useState<Record<string, string>>({})
@@ -33,6 +36,7 @@ export function DebtsPage({
               <th className="text-right p-2">{t('admin.debts.openCount')}</th>
               <th className="text-right p-2">{t('admin.debts.totalRemaining')}</th>
               <th className="text-right p-2">{t('admin.debts.repay')}</th>
+              <th className="text-right p-2">{t('admin.debts.reminder')}</th>
             </tr>
           </thead>
           <tbody>
@@ -45,11 +49,11 @@ export function DebtsPage({
                   <td className="p-2">{row.customer_name}</td>
                   <td className="p-2">{row.customer_phone}</td>
                   <td className="p-2 text-right">{count}</td>
-                  <td className="p-2 text-right">{total.toFixed(0)}</td>
+                  <td className="p-2 text-right">{formatMoney(total.toFixed(0))}</td>
                   <td className="p-2 text-right">
                     <div className="inline-flex gap-2">
                       <input
-                        className="px-2 py-1 rounded bg-slate-950 border border-slate-700 w-24"
+                        className="touch-btn min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 w-28 text-sm"
                         placeholder={t('admin.debts.amountPlaceholder')}
                         value={amountByCustomer[customerId] ?? ''}
                         onChange={(e) =>
@@ -58,7 +62,7 @@ export function DebtsPage({
                       />
                       <button
                         type="button"
-                        className="px-2 py-1 rounded bg-emerald-700 border border-emerald-500"
+                        className="touch-btn min-h-12 px-4 rounded-xl bg-emerald-700 border border-emerald-500 text-sm font-medium"
                         onClick={() =>
                           void onRepay(customerId, amountByCustomer[customerId] || '0')
                         }
@@ -67,12 +71,21 @@ export function DebtsPage({
                       </button>
                     </div>
                   </td>
+                  <td className="p-2 text-right">
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600 text-sm"
+                      onClick={() => void onSendReminder(customerId, total.toFixed(0))}
+                    >
+                      {t('admin.debts.reminder')}
+                    </button>
+                  </td>
                 </tr>
               )
             })}
             {debts.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-slate-500">
+                <td colSpan={6} className="p-6 text-center text-slate-500">
                   {t('admin.debts.empty')}
                 </td>
               </tr>

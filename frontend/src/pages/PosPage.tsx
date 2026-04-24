@@ -1,14 +1,23 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Calculator, LogOut, ScanLine, Printer, LayoutGrid } from 'lucide-react'
 import Decimal from 'decimal.js'
 import {
   completeSale,
   fetchReceiptEscpos,
   fetchReceiptPlain,
+  fetchHardwareConfig,
   fetchVariantByBarcode,
+  fetchPosVariantSearch,
+  fetchPosVariantsByProduct,
   logout,
+  updatePosVariantPrice,
+  type PosVariant,
 } from '../api'
 import { usePosStore, type PayMode } from '../store/posStore'
+import { formatMoney } from '../utils/money'
+import { printEscposBase64 } from '../utils/tauriPrint'
+import { TouchNumpad } from '../components/TouchNumpad'
 
 Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP })
 
@@ -50,6 +59,33 @@ function beepError() {
   }
 }
 
+function beepOk() {
+  try {
+    const ctx = new AudioContext()
+    const o = ctx.createOscillator()
+    const g = ctx.createGain()
+    o.connect(g)
+    g.connect(ctx.destination)
+    o.frequency.value = 880
+    g.gain.value = 0.04
+    o.start()
+    setTimeout(() => {
+      o.stop()
+      ctx.close()
+    }, 80)
+  } catch {
+    // ignore
+  }
+}
+
+function normalizeScannerToken(token: string): string {
+  const v = (token || '').trim()
+  if (!v) return ''
+  if (v === '\\t' || v.toLowerCase() === 'tab') return '\t'
+  if (v === '\\n' || v.toLowerCase() === 'enter') return '\n'
+  return token
+}
+
 function moneyFromLine(list: string, qty: number): string {
   return roundSom(new Decimal(list).mul(qty)).toString()
 }
@@ -62,17 +98,63 @@ function sumGrand(cart: ReturnType<typeof usePosStore.getState>['cart']): string
   return roundSom(t).toString()
 }
 
-export function PosPage({ onLogout }: { onLogout: () => void }) {
+function calcGrand(subtotal: Decimal, discount: Decimal): Decimal {
+  const g = subtotal.minus(discount)
+  return g.greaterThan(0) ? roundSom(g) : new Decimal(0)
+}
+
+const AFTER_SCAN_FOCUS_KEY = 'pos_after_scan_focus'
+const LOW_STOCK_THRESHOLD = 2
+
+type NumpadCtx = { kind: 'discount' } | { kind: 'payment'; rowId: string }
+
+type StockMatrixOpen = { productId: string; colorId: string; title: string }
+
+export function PosPage({
+  onLogout,
+  footerLangStrip = false,
+}: {
+  onLogout: () => void
+  /** Standalone `/pos` (no admin sidebar): show language at bottom */
+  footerLangStrip?: boolean
+}) {
   const { t, i18n } = useTranslation()
   const scanRef = useRef<HTMLInputElement>(null)
+  const lastQtyCellRef = useRef<HTMLDivElement>(null)
+  const pendingQtyFocus = useRef(false)
   const [buffer, setBuffer] = useState('')
   const [toast, setToast] = useState<{ kind: 'err' | 'ok'; msg: string } | null>(null)
   const [banner, setBanner] = useState<string | null>(null)
   const [scanFlash, setScanFlash] = useState(false)
+  const [cartFlash, setCartFlash] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [printBanner, setPrintBanner] = useState<string | null>(null)
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
   const [clearArmed, setClearArmed] = useState(false)
+  const [orderDiscount, setOrderDiscount] = useState('0')
+  const [scannerPrefix, setScannerPrefix] = useState('')
+  const [scannerSuffix, setScannerSuffix] = useState('\t')
+  const [autoPrintOnSale, setAutoPrintOnSale] = useState(true)
+  const [receiptPrinterName, setReceiptPrinterName] = useState('')
+  const [afterScanFocus, setAfterScanFocus] = useState<'scan' | 'qty'>(() => {
+    try {
+      const v = localStorage.getItem(AFTER_SCAN_FOCUS_KEY)
+      return v === 'qty' ? 'qty' : 'scan'
+    } catch {
+      return 'scan'
+    }
+  })
+  const [numpadCtx, setNumpadCtx] = useState<NumpadCtx | null>(null)
+  const [numpadBuf, setNumpadBuf] = useState('0')
+  const [selectedLine, setSelectedLine] = useState<null | { variantId: string; name: string; stockQty: number; listPrice: string }>(null)
+  const [numpadValue, setNumpadValue] = useState('0')
+  const [priceBusy, setPriceBusy] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<PosVariant[]>([])
+  const [searchBusy, setSearchBusy] = useState(false)
+  const [stockMatrix, setStockMatrix] = useState<null | StockMatrixOpen>(null)
+  const [matrixRows, setMatrixRows] = useState<PosVariant[]>([])
+  const [matrixBusy, setMatrixBusy] = useState(false)
 
   const cart = usePosStore((s) => s.cart)
   const payMode = usePosStore((s) => s.payMode)
@@ -83,9 +165,21 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
   const clearCart = usePosStore((s) => s.clearCart)
   const setPayMode = usePosStore((s) => s.setPayMode)
   const setCustomer = usePosStore((s) => s.setCustomer)
+  const updateLinePrice = usePosStore((s) => s.updateLinePrice)
 
-  const grand = sumGrand(cart)
-  const grandDec = useMemo(() => parseSom(grand), [grand])
+  const subtotal = sumGrand(cart)
+  const subtotalDec = useMemo(() => parseSom(subtotal), [subtotal])
+  const discountDec = useMemo(() => parseSom(orderDiscount), [orderDiscount])
+  const grandDec = useMemo(() => calcGrand(subtotalDec, discountDec), [subtotalDec, discountDec])
+  const grand = grandDec.toString()
+
+  const lowStockLines = useMemo(() => {
+    return cart.filter((l) => {
+      const stock = Number(l.stockQty ?? 0)
+      const remaining = stock - l.qty
+      return remaining >= 0 && remaining <= LOW_STOCK_THRESHOLD
+    })
+  }, [cart])
 
   const [paymentRows, setPaymentRows] = useState<PaymentRow[]>([
     { id: crypto.randomUUID(), method: 'CASH', amount: '0' },
@@ -107,7 +201,59 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     safeRefocus()
-  }, [safeRefocus, cart, toast, banner, completing, printBanner])
+  }, [safeRefocus, toast, banner, completing, printBanner])
+
+  useEffect(() => {
+    if (!pendingQtyFocus.current || cart.length === 0) return
+    pendingQtyFocus.current = false
+    const id = requestAnimationFrame(() => lastQtyCellRef.current?.focus())
+    return () => cancelAnimationFrame(id)
+  }, [cart])
+
+  useEffect(() => {
+    const q = productSearch.trim()
+    if (q.length < 2) {
+      setSearchResults([])
+      return
+    }
+    const tmr = window.setTimeout(() => {
+      setSearchBusy(true)
+      void fetchPosVariantSearch(q)
+        .then(setSearchResults)
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchBusy(false))
+    }, 320)
+    return () => window.clearTimeout(tmr)
+  }, [productSearch])
+
+  useEffect(() => {
+    if (!stockMatrix) {
+      setMatrixRows([])
+      return
+    }
+    setMatrixBusy(true)
+    void fetchPosVariantsByProduct(stockMatrix.productId, stockMatrix.colorId)
+      .then(setMatrixRows)
+      .catch(() => setMatrixRows([]))
+      .finally(() => setMatrixBusy(false))
+  }, [stockMatrix])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const cfg = await fetchHardwareConfig()
+        setScannerPrefix(normalizeScannerToken(cfg.scanner_prefix || ''))
+        setScannerSuffix(normalizeScannerToken(cfg.scanner_suffix || '\t') || '\t')
+        setAutoPrintOnSale(cfg.auto_print_on_sale !== false)
+        setReceiptPrinterName((cfg.receipt_printer_name || '').trim())
+      } catch {
+        setScannerPrefix('')
+        setScannerSuffix('\t')
+        setAutoPrintOnSale(true)
+        setReceiptPrinterName('')
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     if (paymentRows.length === 1) {
@@ -173,8 +319,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     let ok = false
     if (b64) {
       try {
-        const { invoke } = await import('@tauri-apps/api/tauri')
-        await invoke('print_escpos', { payload: b64 })
+        await printEscposBase64(b64, receiptPrinterName || null)
         ok = true
       } catch {
         ok = false
@@ -201,22 +346,40 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
     safeRefocus()
   }
 
+  function addVariantToCart(v: PosVariant, opts?: { clearSearch?: boolean }) {
+    addLine({
+      variantId: v.id,
+      productId: v.product,
+      colorId: v.color,
+      barcode: v.barcode ?? '',
+      name: v.product_name_uz,
+      sizeLabel: v.size_label_uz,
+      colorLabel: v.color_label_uz,
+      listPrice: String(v.list_price),
+      stockQty: Number(v.stock_qty || 0),
+      qty: 1,
+    })
+    beepOk()
+    setCartFlash(true)
+    setTimeout(() => setCartFlash(false), 240)
+    if (opts?.clearSearch) {
+      setProductSearch('')
+      setSearchResults([])
+    }
+    if (afterScanFocus === 'qty') {
+      pendingQtyFocus.current = true
+    } else {
+      safeRefocus()
+    }
+  }
+
   async function handleScanSubmit(code: string) {
     const c = code.trim()
     if (!c) return
     try {
       const v = await fetchVariantByBarcode(c)
-      addLine({
-        variantId: v.id,
-        barcode: v.barcode,
-        name: v.product_name_uz,
-        sizeLabel: v.size_label_uz,
-        colorLabel: v.color_label_uz,
-        listPrice: String(v.list_price),
-        qty: 1,
-      })
       setBuffer('')
-      safeRefocus()
+      addVariantToCart(v)
     } catch (e: unknown) {
       beepError()
       setScanFlash(true)
@@ -240,7 +403,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
     if (!payTotal.eq(grandDec)) {
       beepError()
-      setBanner(`${t('msg.paymentMismatch')} (${payTotal.toString()} / ${grandDec.toString()})`)
+      setBanner(`${t('msg.paymentMismatch')} (${formatMoney(payTotal.toString())} / ${formatMoney(grandDec.toString())})`)
       safeRefocus()
       return
     }
@@ -275,6 +438,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
         {
           lines,
           payments,
+          order_discount: discountDec.toString(),
           customer,
           expected_grand_total: grandDec.toString(),
         },
@@ -284,9 +448,10 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
       clearCart()
       setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
       setActivePayId(null)
+      setOrderDiscount('0')
       showToast('ok', `${t('msg.sale')}: ${res.sale_id}`)
       setTimeout(() => setCompleting(false), 400)
-      void tryPrint(res.sale_id as string)
+      if (autoPrintOnSale) void tryPrint(res.sale_id as string)
     } catch (e: unknown) {
       beepError()
       const code = (e as Error & { code?: string }).code
@@ -346,8 +511,12 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
   function onScanChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value
-    if (v.includes('\t')) {
-      const code = v.replace('\t', '').trim()
+    const suffix = scannerSuffix || '\t'
+    if (suffix && v.includes(suffix)) {
+      let code = v.replaceAll(suffix, '').trim()
+      if (scannerPrefix && code.startsWith(scannerPrefix)) {
+        code = code.slice(scannerPrefix.length)
+      }
       setBuffer('')
       void handleScanSubmit(code)
       return
@@ -357,52 +526,63 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
 
   const payTotalView = paymentTotal().toString()
 
+  function openAmountNumpad(ctx: NumpadCtx) {
+    setNumpadCtx(ctx)
+    if (ctx.kind === 'discount') {
+      setNumpadBuf(roundSom(parseSom(orderDiscount)).toString())
+    } else {
+      const row = paymentRows.find((r) => r.id === ctx.rowId)
+      setNumpadBuf(row ? roundSom(parseSom(row.amount)).toString() : '0')
+    }
+  }
+
+  function applyAmountNumpad() {
+    if (!numpadCtx) return
+    const v = roundSom(parseSom(numpadBuf)).toString()
+    if (numpadCtx.kind === 'discount') {
+      setOrderDiscount(v)
+    } else {
+      updatePaymentRow(numpadCtx.rowId, { amount: v })
+    }
+    setNumpadCtx(null)
+    safeRefocus()
+  }
+
+  function setAfterScanMode(mode: 'scan' | 'qty') {
+    setAfterScanFocus(mode)
+    try {
+      localStorage.setItem(AFTER_SCAN_FOCUS_KEY, mode)
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">{t('app.title')}</span>
-          <button
-            type="button"
-            className={`text-xs px-2 py-1 rounded border ${
-              i18n.language.startsWith('uz')
-                ? 'bg-emerald-700 border-emerald-500 text-white'
-                : 'bg-slate-800 border-slate-600 text-slate-200'
-            }`}
-            onClick={() => i18n.changeLanguage('uz')}
-          >
-            {t('lang.uz')}
-          </button>
-          <button
-            type="button"
-            className={`text-xs px-2 py-1 rounded border ${
-              i18n.language.startsWith('ru')
-                ? 'bg-emerald-700 border-emerald-500 text-white'
-                : 'bg-slate-800 border-slate-600 text-slate-200'
-            }`}
-            onClick={() => i18n.changeLanguage('ru')}
-          >
-            {t('lang.ru')}
-          </button>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-semibold truncate">{t('app.title')}</span>
         </div>
         <div className="flex gap-2 items-center">
           {lastSaleId && (
             <button
               type="button"
-              className="text-sm px-2 py-1 rounded bg-slate-800 border border-slate-600"
+              className="touch-btn inline-flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-slate-800 border border-slate-600"
               onClick={() => lastSaleId && void tryPrint(lastSaleId)}
             >
+              <Printer className="h-4 w-4" aria-hidden />
               {t('header.reprint')}
             </button>
           )}
           <button
             type="button"
-            className="text-sm text-slate-400 hover:text-white"
+            className="touch-btn inline-flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-slate-200"
             onClick={async () => {
               await logout()
               onLogout()
             }}
           >
+            <LogOut className="h-4 w-4" aria-hidden />
             {t('header.logout')}
           </button>
         </div>
@@ -440,6 +620,19 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
           {printBanner}
         </div>
       )}
+      {lowStockLines.length > 0 && (
+        <div className="mx-4 mt-2 px-3 py-2 rounded text-sm bg-amber-950/90 border border-amber-700 text-amber-50">
+          <div className="font-medium">{t('pos.lowStockWarning', { n: LOW_STOCK_THRESHOLD })}</div>
+          <ul className="mt-1 list-disc list-inside text-xs opacity-95">
+            {lowStockLines.map((l) => (
+              <li key={l.variantId}>
+                {l.name} — {l.colorLabel} / {l.sizeLabel}:{' '}
+                {t('pos.afterSaleStock', { count: Math.max(0, Number(l.stockQty ?? 0) - l.qty) })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <main className="flex-1 flex flex-col md:flex-row gap-4 p-4">
         <section className="flex-1 flex flex-col gap-3">
@@ -458,52 +651,153 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
           />
           <p className="text-xs text-slate-500">{t('scan.hint')}</p>
 
-          <div className="rounded border border-slate-800 overflow-hidden">
+          <label className="text-xs text-slate-400 mt-3 block" htmlFor="posProductSearch">
+            {t('pos.searchLabel')}
+          </label>
+          <input
+            id="posProductSearch"
+            value={productSearch}
+            onChange={(e) => setProductSearch(e.target.value)}
+            className="touch-btn w-full text-base px-3 py-3 rounded-xl border bg-slate-900 border-slate-600 outline-none"
+            placeholder={t('pos.searchPlaceholder')}
+            autoComplete="off"
+          />
+          {searchBusy && <p className="text-xs text-slate-500">{t('admin.common.loading')}</p>}
+          {productSearch.trim().length >= 2 && !searchBusy && searchResults.length === 0 && (
+            <p className="text-xs text-amber-600/90">{t('pos.searchEmpty')}</p>
+          )}
+          {searchResults.length > 0 && (
+            <ul
+              className="max-h-52 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900/90 divide-y divide-slate-800"
+              role="listbox"
+            >
+              {searchResults.map((v) => (
+                <li key={v.id}>
+                  <button
+                    type="button"
+                    className="touch-btn w-full min-h-12 text-left px-3 py-3 text-sm hover:bg-slate-800"
+                    onClick={() => addVariantToCart(v, { clearSearch: true })}
+                  >
+                    <div className="font-medium">{v.product_name_uz}</div>
+                    <div className="text-xs text-slate-400">
+                      {v.color_label_uz} / {v.size_label_uz} · {formatMoney(String(v.list_price))} ·{' '}
+                      {t('admin.catalog.stock')}: {v.stock_qty}
+                    </div>
+                    {v.barcode ? <div className="text-xs text-slate-500 font-mono mt-0.5">{v.barcode}</div> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span>{t('pos.focusAfterScan')}:</span>
+            <button
+              type="button"
+              className={`touch-btn px-3 py-2 rounded-lg border text-sm ${
+                afterScanFocus === 'scan' ? 'border-emerald-500 bg-emerald-950/50 text-emerald-100' : 'border-slate-600'
+              }`}
+              onClick={() => setAfterScanMode('scan')}
+            >
+              {t('pos.focusScanField')}
+            </button>
+            <button
+              type="button"
+              className={`touch-btn px-3 py-2 rounded-lg border text-sm ${
+                afterScanFocus === 'qty' ? 'border-emerald-500 bg-emerald-950/50 text-emerald-100' : 'border-slate-600'
+              }`}
+              onClick={() => setAfterScanMode('qty')}
+            >
+              {t('pos.focusQtyField')}
+            </button>
+          </div>
+
+          {cart.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 py-12 px-6 text-center">
+              <ScanLine className="mx-auto h-20 w-20 text-slate-600 mb-4" strokeWidth={1.25} aria-hidden />
+              <div className="text-lg font-semibold text-slate-200">{t('pos.emptyCartTitle')}</div>
+              <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto">{t('pos.emptyCartBody')}</p>
+            </div>
+          )}
+
+          <div
+            className={`rounded-xl border overflow-hidden transition-colors ${
+              cart.length === 0 ? 'hidden' : ''
+            } ${cartFlash ? 'border-emerald-500' : 'border-slate-800'}`}
+          >
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-slate-400">
                 <tr>
-                  <th className="text-left p-2">{t('cart.title')}</th>
-                  <th className="p-2">{t('cart.qty')}</th>
-                  <th className="text-right p-2">{t('cart.sum')}</th>
+                  <th className="text-left p-3">{t('cart.title')}</th>
+                  <th className="p-3">{t('cart.qty')}</th>
+                  <th className="text-right p-3">{t('cart.sum')}</th>
                 </tr>
               </thead>
               <tbody>
-                {cart.map((l) => (
-                  <tr key={l.variantId} className="border-t border-slate-800">
-                    <td className="p-2">
+                {cart.map((l, idx) => (
+                  <tr
+                    key={l.variantId}
+                    className="border-t border-slate-800 cursor-pointer hover:bg-slate-900/60"
+                    onClick={() => {
+                      setNumpadValue(String(parseSom(l.listPrice)))
+                      setSelectedLine({
+                        variantId: l.variantId,
+                        name: l.name,
+                        stockQty: Number(l.stockQty || 0),
+                        listPrice: l.listPrice,
+                      })
+                    }}
+                  >
+                    <td className="p-3">
                       <div className="font-medium">{l.name}</div>
                       <div className="text-xs text-slate-400">
                         {l.colorLabel} / {l.sizeLabel} - {l.barcode}
                       </div>
+                      {l.productId ? (
+                        <button
+                          type="button"
+                          className="touch-btn mt-2 inline-flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-slate-200"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setStockMatrix({
+                              productId: l.productId,
+                              colorId: l.colorId,
+                              title: `${l.name} — ${l.colorLabel}`,
+                            })
+                          }}
+                        >
+                          <LayoutGrid className="h-4 w-4 shrink-0" aria-hidden />
+                          {t('pos.stockMatrix')}
+                        </button>
+                      ) : null}
                     </td>
-                    <td className="p-2 text-center">
-                      <button
-                        type="button"
-                        className="px-2 py-0.5 bg-slate-800 rounded"
-                        onClick={() => incQty(l.variantId, -1)}
+                    <td className="p-3 text-center">
+                      <div
+                        ref={idx === cart.length - 1 ? lastQtyCellRef : undefined}
+                        tabIndex={idx === cart.length - 1 ? 0 : -1}
+                        className="inline-flex items-center gap-2 outline-none rounded-lg focus-visible:ring-2 focus-visible:ring-emerald-500"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        -
-                      </button>
-                      <span className="mx-2">{l.qty}</span>
-                      <button
-                        type="button"
-                        className="px-2 py-0.5 bg-slate-800 rounded"
-                        onClick={() => incQty(l.variantId, 1)}
-                      >
-                        +
-                      </button>
+                        <button
+                          type="button"
+                          className="touch-btn min-h-12 min-w-12 rounded-xl bg-slate-800 border border-slate-600 text-lg font-semibold"
+                          onClick={() => incQty(l.variantId, -1)}
+                        >
+                          -
+                        </button>
+                        <span className="min-w-[2rem] text-center text-base font-medium">{l.qty}</span>
+                        <button
+                          type="button"
+                          className="touch-btn min-h-12 min-w-12 rounded-xl bg-slate-800 border border-slate-600 text-lg font-semibold"
+                          onClick={() => incQty(l.variantId, 1)}
+                        >
+                          +
+                        </button>
+                      </div>
                     </td>
-                    <td className="p-2 text-right">{moneyFromLine(l.listPrice, l.qty)}</td>
+                    <td className="p-3 text-right text-base">{formatMoney(moneyFromLine(l.listPrice, l.qty))}</td>
                   </tr>
                 ))}
-                {cart.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="p-6 text-center text-slate-500">
-                      {t('cart.empty')}
-                      <div className="text-xs text-slate-400 mt-1">{t('cart.emptyHint')}</div>
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -515,7 +809,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
               <div className="text-sm text-slate-400">{t('pay.split')}</div>
               <button
                 type="button"
-                className="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-600"
+                className="touch-btn px-4 py-2 text-sm rounded-xl bg-slate-800 border border-slate-600"
                 onClick={addPaymentRow}
               >
                 {t('pay.addRow')}
@@ -532,7 +826,7 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                   onClick={() => setActivePayId(r.id)}
                 >
                   <select
-                    className="px-2 py-2 rounded bg-slate-900 border border-slate-600 text-sm"
+                    className="touch-btn min-h-12 px-2 rounded-xl bg-slate-900 border border-slate-600 text-sm"
                     value={r.method}
                     onChange={(e) => updatePaymentRow(r.id, { method: e.target.value as PayMode })}
                   >
@@ -540,35 +834,67 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
                     <option value="CARD">{t('pay.method.card')}</option>
                     <option value="DEBT">{t('pay.method.debt')}</option>
                   </select>
-                  <input
-                    className="px-2 py-2 rounded bg-slate-900 border border-slate-600 text-sm"
-                    value={r.amount}
-                    onChange={(e) => updatePaymentRow(r.id, { amount: e.target.value })}
-                  />
+                  <div className="flex gap-1 items-stretch min-w-0">
+                    <input
+                      className="touch-btn min-h-12 flex-1 min-w-0 px-2 rounded-xl bg-slate-900 border border-slate-600 text-sm"
+                      value={r.amount}
+                      onChange={(e) => updatePaymentRow(r.id, { amount: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 min-w-12 shrink-0 rounded-xl bg-slate-800 border border-slate-600 flex items-center justify-center"
+                      onClick={() => openAmountNumpad({ kind: 'payment', rowId: r.id })}
+                      aria-label={t('pos.openNumpad')}
+                    >
+                      <Calculator className="h-5 w-5" />
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-xs"
+                    className="touch-btn min-h-12 min-w-12 rounded-xl bg-slate-800 border border-slate-600 text-sm font-bold"
                     onClick={() => removePaymentRow(r.id)}
                     disabled={paymentRows.length === 1}
                     title={`${t('pay.addRow')} #${idx + 1}`}
                   >
-                    x
+                    ×
                   </button>
                 </div>
               ))}
             </div>
 
             <div className="mt-2 text-xs text-slate-400">
-              {t('pay.total')}: {payTotalView} / {t('pay.grand')}: {grand}
+              {t('summary.subtotal')}: {formatMoney(subtotal)}
+            </div>
+            <div className="mt-1 text-xs text-slate-400">
+              {t('summary.discount')}: {formatMoney(orderDiscount)}
+            </div>
+            <div className="mt-1 text-xs text-slate-400">
+              {t('pay.total')}: {formatMoney(payTotalView)} / {t('pay.grand')}: {formatMoney(grand)}
+            </div>
+            <div className="mt-2 flex gap-2 items-stretch">
+              <input
+                className="touch-btn min-h-12 flex-1 px-3 rounded-xl bg-slate-900 border border-slate-600 text-sm"
+                value={orderDiscount}
+                onChange={(e) => setOrderDiscount(e.target.value)}
+                placeholder={t('summary.discount')}
+              />
+              <button
+                type="button"
+                className="touch-btn min-h-12 min-w-12 shrink-0 rounded-xl bg-slate-800 border border-slate-600 flex items-center justify-center"
+                onClick={() => openAmountNumpad({ kind: 'discount' })}
+                aria-label={t('pos.openNumpad')}
+              >
+                <Calculator className="h-5 w-5" />
+              </button>
             </div>
 
-            <div className="mt-2 flex gap-2 flex-wrap">
+            <div className="mt-3 flex gap-3 flex-wrap">
               {(['CASH', 'CARD', 'DEBT'] as PayMode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => setActiveMethod(m)}
-                  className={`px-3 py-2 rounded text-sm border ${
+                  className={`touch-btn min-h-12 px-5 rounded-xl text-sm font-medium border ${
                     payMode === m ? 'bg-emerald-700 border-emerald-500' : 'bg-slate-800 border-slate-600'
                   }`}
                 >
@@ -584,13 +910,13 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             <div className="rounded border border-slate-800 p-3 bg-slate-900 space-y-2">
               <div className="text-sm text-slate-400">{t('pay.customer')}</div>
               <input
-                className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700 text-sm"
+                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm"
                 placeholder={t('pay.customerName')}
                 value={customerName}
                 onChange={(e) => setCustomer(e.target.value, customerPhone)}
               />
               <input
-                className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700 text-sm"
+                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm"
                 placeholder={t('pay.customerPhone')}
                 value={customerPhone}
                 onChange={(e) => setCustomer(customerName, e.target.value)}
@@ -598,20 +924,197 @@ export function PosPage({ onLogout }: { onLogout: () => void }) {
             </div>
           )}
 
-          <div className="rounded border border-slate-800 p-4 bg-slate-900">
+          <div className="rounded-xl border border-slate-800 p-4 bg-slate-900">
             <div className="text-slate-400 text-sm">{t('summary.total')}</div>
-            <div className="text-3xl font-bold mt-1">{grand}</div>
+            <div className="text-3xl font-bold mt-1">{formatMoney(grand)}</div>
             <button
               type="button"
               disabled={completing || cart.length === 0}
-              className="mt-4 w-full py-3 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 font-semibold"
+              className="touch-btn mt-4 w-full min-h-14 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 font-semibold text-lg"
               onClick={() => void doComplete()}
             >
-              {completing ? t('summary.saving') : t('summary.complete')}
+              {completing ? t('summary.saving') : t('summary.completeTouch')}
             </button>
+            <p className="text-xs text-slate-500 mt-2 text-center">{t('summary.complete')}</p>
           </div>
         </aside>
       </main>
+      {numpadCtx && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
+            <h3 className="text-lg font-semibold mb-1">
+              {numpadCtx.kind === 'discount' ? t('pos.numpadDiscountTitle') : t('pos.numpadTitle')}
+            </h3>
+            <div className="text-3xl font-bold mb-4 text-center">{formatMoney(numpadBuf)}</div>
+            <TouchNumpad value={(numpadBuf || '0').replace(/\D/g, '') || '0'} onChange={setNumpadBuf} />
+            <div className="flex gap-3 mt-5 justify-end">
+              <button
+                type="button"
+                className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-600"
+                onClick={() => {
+                  setNumpadCtx(null)
+                  safeRefocus()
+                }}
+              >
+                {t('admin.common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="touch-btn min-h-12 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-semibold"
+                onClick={() => applyAmountNumpad()}
+              >
+                {t('pos.numpadApply')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedLine && (
+        <div className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-lg font-semibold">{selectedLine.name}</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded bg-slate-950 border border-slate-700 p-2">
+                <div className="text-slate-400">{t('admin.catalog.stock')}</div>
+                <div className="text-xl">{selectedLine.stockQty}</div>
+              </div>
+              <div className="rounded bg-slate-950 border border-slate-700 p-2">
+                <div className="text-slate-400">{t('admin.catalog.salePrice')}</div>
+                <div className="text-xl">{formatMoney(selectedLine.listPrice)}</div>
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-950 border border-slate-700 p-3">
+              <div className="text-sm text-slate-400 mb-2">{t('admin.catalog.salePrice')}</div>
+              <div className="text-3xl font-semibold mb-3">{formatMoney(numpadValue)}</div>
+              <TouchNumpad
+                value={(numpadValue || '0').replace(/\D/g, '') || '0'}
+                onChange={(v) => setNumpadValue(v)}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-600"
+                onClick={() => setSelectedLine(null)}
+              >
+                {t('admin.common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={priceBusy}
+                className="touch-btn min-h-12 px-5 rounded-xl bg-emerald-700 border border-emerald-500 disabled:opacity-50"
+                onClick={async () => {
+                  setPriceBusy(true)
+                  try {
+                    const nextPrice = String(parseSom(numpadValue))
+                    await updatePosVariantPrice(selectedLine.variantId, nextPrice)
+                    updateLinePrice(selectedLine.variantId, nextPrice)
+                    showToast('ok', t('admin.settings.actionCompleted', { label: t('admin.catalog.salePrice') }))
+                    setSelectedLine(null)
+                    setNumpadValue('0')
+                  } catch (e: unknown) {
+                    const code = (e as Error & { code?: string }).code
+                    showToast('err', t(`err.${code || 'POS_PRICE_UPDATE_FAILED'}`))
+                  } finally {
+                    setPriceBusy(false)
+                  }
+                }}
+              >
+                {priceBusy ? t('admin.common.saving') : t('admin.common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {stockMatrix && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal
+          aria-labelledby="stock-matrix-title"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-xl max-h-[85vh] flex flex-col">
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <div>
+                <h2 id="stock-matrix-title" className="text-lg font-semibold text-slate-100">
+                  {t('pos.stockMatrixTitle')}
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">{stockMatrix.title}</p>
+              </div>
+              <button
+                type="button"
+                className="touch-btn px-4 py-2 rounded-xl bg-slate-800 border border-slate-600 text-sm"
+                onClick={() => setStockMatrix(null)}
+              >
+                {t('pos.matrixClose')}
+              </button>
+            </div>
+            {matrixBusy ? (
+              <p className="text-sm text-slate-400 py-6">{t('admin.common.loading')}</p>
+            ) : (
+              <div className="overflow-y-auto rounded-xl border border-slate-800">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-950 text-slate-400 sticky top-0">
+                    <tr>
+                      <th className="text-left p-3">{t('pos.matrixSize')}</th>
+                      <th className="text-right p-3">{t('pos.matrixStock')}</th>
+                      <th className="text-right p-3">{t('cart.sum')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixRows.map((r) => (
+                      <tr key={r.id} className="border-t border-slate-800">
+                        <td className="p-3">
+                          <div className="font-medium">{r.size_label_uz}</div>
+                          {r.barcode ? <div className="text-xs text-slate-500 font-mono">{r.barcode}</div> : null}
+                        </td>
+                        <td className="p-3 text-right tabular-nums">{r.stock_qty}</td>
+                        <td className="p-3 text-right tabular-nums">{formatMoney(String(r.list_price))}</td>
+                      </tr>
+                    ))}
+                    {matrixRows.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="p-6 text-center text-slate-500">
+                          {t('pos.searchEmpty')}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {footerLangStrip && (
+        <footer className="border-t border-slate-800 bg-slate-900 px-4 py-2 flex flex-wrap items-center gap-2 justify-center shrink-0">
+          <span className="text-xs text-slate-500 uppercase tracking-wide">{t('admin.sidebar.language')}</span>
+          <button
+            type="button"
+            className={`touch-btn text-sm px-4 py-2 rounded-xl border ${
+              i18n.language.startsWith('uz')
+                ? 'bg-emerald-700 border-emerald-500 text-white'
+                : 'bg-slate-800 border-slate-600 text-slate-200'
+            }`}
+            onClick={() => i18n.changeLanguage('uz')}
+          >
+            {t('lang.uz')}
+          </button>
+          <button
+            type="button"
+            className={`touch-btn text-sm px-4 py-2 rounded-xl border ${
+              i18n.language.startsWith('ru')
+                ? 'bg-emerald-700 border-emerald-500 text-white'
+                : 'bg-slate-800 border-slate-600 text-slate-200'
+            }`}
+            onClick={() => i18n.changeLanguage('ru')}
+          >
+            {t('lang.ru')}
+          </button>
+        </footer>
+      )}
     </div>
   )
 }

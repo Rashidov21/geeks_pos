@@ -33,6 +33,7 @@ def complete_sale(
     lines: list[dict[str, Any]],
     payments: list[dict[str, Any]],
     customer: dict[str, Any] | None,
+    order_discount: Decimal | None = None,
     expected_grand_total: Decimal | None = None,
     note: str = "",
 ) -> Sale:
@@ -59,6 +60,7 @@ def complete_sale(
                     lines=lines,
                     payments=payments,
                     customer=customer,
+                    order_discount=order_discount,
                     expected_grand_total=expected_grand_total,
                     note=note,
                 )
@@ -80,6 +82,7 @@ def _complete_sale_inner(
     lines: list[dict[str, Any]],
     payments: list[dict[str, Any]],
     customer: dict[str, Any] | None,
+    order_discount: Decimal | None,
     expected_grand_total: Decimal | None,
     note: str,
 ) -> Sale:
@@ -122,6 +125,10 @@ def _complete_sale_inner(
             }
         )
 
+    order_discount_amount = _q(Decimal(str(order_discount or "0")))
+    if order_discount_amount < 0:
+        raise ValueError("order_discount cannot be negative")
+    discount_total += order_discount_amount
     grand_total = _q(subtotal - discount_total)
     if grand_total < 0:
         raise InvalidPaymentSplit("Grand total cannot be negative")

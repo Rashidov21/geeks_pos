@@ -15,9 +15,9 @@ use tauri::Manager;
 use raw_printer::write_to_device;
 
 #[cfg(windows)]
-use windows_sys::Win32::Graphics::Printing::{
-    GetDefaultPrinterW,
-};
+use windows_sys::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER};
+#[cfg(windows)]
+use windows_sys::Win32::Graphics::Printing::{EnumPrintersW, GetDefaultPrinterW, PRINTER_INFO_4W};
 
 struct BackendState {
     child: Mutex<Option<Child>>,
@@ -164,15 +164,100 @@ fn default_printer_name() -> Result<String, String> {
 }
 
 #[cfg(windows)]
-fn raw_print_default(bytes: &[u8]) -> Result<(), String> {
-    let printer_name = default_printer_name()?;
-    let written = write_to_device(&printer_name, bytes, Some("Geeks POS Receipt"))
-        .map_err(|e| format!("raw_printer error: {e}"))?;
+fn raw_print_to(printer_name: Option<&str>, bytes: &[u8], doc_name: &str) -> Result<(), String> {
+    let name = match printer_name.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => s.to_string(),
+        None => default_printer_name()?,
+    };
+    let written = write_to_device(&name, bytes, Some(doc_name)).map_err(|e| format!("raw_printer error: {e}"))?;
     if written == 0 {
         return Err("raw_printer wrote zero bytes".to_string());
     }
-
     Ok(())
+}
+
+#[cfg(windows)]
+unsafe fn wide_ptr_to_string(ptr: *const u16) -> Option<String> {
+    if ptr.is_null() {
+        return None;
+    }
+    let mut len = 0usize;
+    while *ptr.add(len) != 0 {
+        len += 1;
+        if len > 4096 {
+            return None;
+        }
+    }
+    let slice = std::slice::from_raw_parts(ptr, len);
+    String::from_utf16(slice).ok()
+}
+
+/// Local + connected printers (fast level 4).
+#[cfg(windows)]
+fn list_installed_printers() -> Result<Vec<String>, String> {
+    const PRINTER_ENUM_LOCAL: u32 = 2;
+    const PRINTER_ENUM_CONNECTIONS: u32 = 4;
+    let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+
+    let mut needed: u32 = 0;
+    let mut returned: u32 = 0;
+
+    let ok = unsafe {
+        EnumPrintersW(
+            flags,
+            std::ptr::null::<u16>(),
+            4,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
+            &mut returned,
+        )
+    };
+    if ok == 0 {
+        let err = unsafe { GetLastError() };
+        if err != ERROR_INSUFFICIENT_BUFFER {
+            return Err(format!("EnumPrintersW probe failed: Win32 error {err}"));
+        }
+    }
+    if needed == 0 {
+        return Ok(vec![]);
+    }
+
+    let mut buf = vec![0u8; needed as usize];
+    let ok2 = unsafe {
+        EnumPrintersW(
+            flags,
+            std::ptr::null::<u16>(),
+            4,
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            &mut needed,
+            &mut returned,
+        )
+    };
+    if ok2 == 0 {
+        return Err(format!(
+            "EnumPrintersW failed: Win32 error {}",
+            unsafe { GetLastError() }
+        ));
+    }
+
+    let mut names = Vec::new();
+    if returned == 0 {
+        return Ok(names);
+    }
+    unsafe {
+        let base = buf.as_ptr() as *const PRINTER_INFO_4W;
+        for i in 0..returned as usize {
+            let info = &*base.add(i);
+            if let Some(s) = wide_ptr_to_string(info.pPrinterName as *const u16) {
+                if !s.is_empty() {
+                    names.push(s);
+                }
+            }
+        }
+    }
+    Ok(names)
 }
 
 #[tauri::command]
@@ -192,17 +277,31 @@ fn print_plain(text: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn print_escpos(payload: String) -> Result<String, String> {
+fn print_escpos(payload: String, printer_name: Option<String>) -> Result<String, String> {
     let bytes = B64.decode(payload.trim()).map_err(|e| e.to_string())?;
 
     #[cfg(windows)]
     {
-        raw_print_default(&bytes)?;
-        return Ok("Printed to default printer".to_string());
+        let target = printer_name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        raw_print_to(target, &bytes, "Geeks POS ESC/POS")?;
+        let label = target.unwrap_or("(default Windows printer)");
+        return Ok(format!("Printed to {label}"));
     }
 
     #[allow(unreachable_code)]
     Err("Raw printing is only supported on Windows".to_string())
+}
+
+#[tauri::command]
+fn list_printers() -> Result<Vec<String>, String> {
+    #[cfg(windows)]
+    {
+        list_installed_printers()
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(vec![])
+    }
 }
 
 fn main() {
@@ -219,7 +318,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![print_plain, print_escpos])
+        .invoke_handler(tauri::generate_handler![print_plain, print_escpos, list_printers])
         .build(tauri::generate_context!())
         .expect("error while building tauri app");
 

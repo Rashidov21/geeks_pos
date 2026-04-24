@@ -31,6 +31,9 @@ class CustomerInSerializer(serializers.Serializer):
 class CompleteSaleSerializer(serializers.Serializer):
     lines = SaleLineInSerializer(many=True)
     payments = PaymentInSerializer(many=True)
+    order_discount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, default=Decimal("0")
+    )
     expected_grand_total = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False
     )

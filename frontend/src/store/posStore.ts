@@ -2,11 +2,14 @@ import { create } from 'zustand'
 
 export type CartLine = {
   variantId: string
+  productId: string
+  colorId: string
   barcode: string
   name: string
   sizeLabel: string
   colorLabel: string
   listPrice: string
+  stockQty?: number
   qty: number
 }
 
@@ -22,6 +25,7 @@ type PosState = {
   clearCart: () => void
   setPayMode: (m: PayMode) => void
   setCustomer: (name: string, phone: string) => void
+  updateLinePrice: (variantId: string, listPrice: string) => void
 }
 
 export const usePosStore = create<PosState>((set, get) => ({
@@ -36,7 +40,14 @@ export const usePosStore = create<PosState>((set, get) => ({
     if (existing) {
       set({
         cart: cart.map((c) =>
-          c.variantId === line.variantId ? { ...c, qty: c.qty + add } : c,
+          c.variantId === line.variantId
+            ? {
+                ...c,
+                qty: c.qty + add,
+                productId: c.productId || line.productId,
+                colorId: c.colorId || line.colorId,
+              }
+            : c,
         ),
       })
     } else {
@@ -45,11 +56,14 @@ export const usePosStore = create<PosState>((set, get) => ({
           ...cart,
           {
             variantId: line.variantId,
+            productId: line.productId,
+            colorId: line.colorId,
             barcode: line.barcode,
             name: line.name,
             sizeLabel: line.sizeLabel,
             colorLabel: line.colorLabel,
             listPrice: line.listPrice,
+            stockQty: line.stockQty,
             qty: add,
           },
         ],
@@ -68,4 +82,8 @@ export const usePosStore = create<PosState>((set, get) => ({
   clearCart: () => set({ cart: [] }),
   setPayMode: (m) => set({ payMode: m }),
   setCustomer: (name, phone) => set({ customerName: name, customerPhone: phone }),
+  updateLinePrice: (variantId, listPrice) =>
+    set({
+      cart: get().cart.map((c) => (c.variantId === variantId ? { ...c, listPrice } : c)),
+    }),
 }))

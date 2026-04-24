@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from django.db.models import Q
 from django.utils import timezone
 
+from core.audit import log_audit
 from core.permissions import IsAdminOrOwner, IsCashier
 
 from .models import Category, Color, Product, ProductVariant, Size
@@ -13,6 +14,8 @@ from .serializers import (
     BulkGridSerializer,
     CategorySerializer,
     ColorSerializer,
+    PosPriceUpdateSerializer,
+    PosProductVariantSerializer,
     ProductSerializer,
     ProductVariantSerializer,
     SizeSerializer,
@@ -104,7 +107,66 @@ class VariantByBarcodeView(APIView):
                 {"code": BarcodeNotFound.code, "detail": "Barcode not found"},
                 status=404,
             )
-        return Response(ProductVariantSerializer(v).data)
+        return Response(PosProductVariantSerializer(v).data)
+
+
+class PosVariantSearchView(APIView):
+    """Text search for POS (cashier): name, brand/model via product, size, color, barcode."""
+
+    permission_classes = [IsAuthenticated, IsCashier]
+
+    def get(self, request):
+        q = (request.query_params.get("q") or "").strip()
+        if len(q) < 2:
+            return Response({"results": []})
+        limit = min(int(request.query_params.get("limit") or 30), 50)
+        qs = (
+            ProductVariant.objects.select_related("product", "size", "color")
+            .filter(is_active=True, deleted_at__isnull=True)
+            .filter(
+                Q(barcode__icontains=q)
+                | Q(product__name_uz__icontains=q)
+                | Q(product__name_ru__icontains=q)
+                | Q(size__label_uz__icontains=q)
+                | Q(size__label_ru__icontains=q)
+                | Q(size__value__icontains=q)
+                | Q(color__label_uz__icontains=q)
+                | Q(color__label_ru__icontains=q)
+                | Q(color__value__icontains=q)
+            )
+            .order_by("product__name_uz", "barcode")[:limit]
+        )
+        return Response({"results": PosProductVariantSerializer(qs, many=True).data})
+
+
+class PosVariantByProductView(APIView):
+    """All active variants for a product (optional color) — POS stock matrix."""
+
+    permission_classes = [IsAuthenticated, IsCashier]
+
+    def get(self, request):
+        from uuid import UUID
+
+        raw_pid = (request.query_params.get("product_id") or "").strip()
+        if not raw_pid:
+            return Response({"code": "PRODUCT_ID_REQUIRED"}, status=400)
+        try:
+            UUID(raw_pid)
+        except ValueError:
+            return Response({"code": "INVALID_PRODUCT_ID"}, status=400)
+        raw_cid = (request.query_params.get("color_id") or "").strip()
+        qs = (
+            ProductVariant.objects.select_related("product", "size", "color")
+            .filter(product_id=raw_pid, is_active=True, deleted_at__isnull=True)
+            .order_by("size__sort_order", "size__value", "color__sort_order", "barcode")
+        )
+        if raw_cid:
+            try:
+                UUID(raw_cid)
+            except ValueError:
+                return Response({"code": "INVALID_COLOR_ID"}, status=400)
+            qs = qs.filter(color_id=raw_cid)
+        return Response({"results": PosProductVariantSerializer(qs, many=True).data})
 
 
 class BulkVariantGridView(APIView):
@@ -143,3 +205,27 @@ class ProductVariantDetail(generics.RetrieveUpdateDestroyAPIView):
     def perform_destroy(self, instance):
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted_at"])
+
+
+class PosVariantPriceView(APIView):
+    permission_classes = [IsAuthenticated, IsCashier]
+
+    def post(self, request, pk):
+        variant = ProductVariant.objects.select_related("product", "size", "color").get(pk=pk)
+        ser = PosPriceUpdateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        old_price = variant.list_price
+        variant.list_price = ser.validated_data["list_price"]
+        variant.save(update_fields=["list_price", "updated_at"])
+        log_audit(
+            event_type="pos_price_updated",
+            actor=request.user.username if request.user else None,
+            entity_id=str(variant.id),
+            payload={
+                "old_price": str(old_price),
+                "new_price": str(variant.list_price),
+                "product_name": variant.product.name_uz,
+                "barcode": variant.barcode,
+            },
+        )
+        return Response(ProductVariantSerializer(variant).data)

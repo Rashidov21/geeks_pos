@@ -27,6 +27,8 @@ INSTALLED_APPS = [
     "debt",
     "printing",
     "sync",
+    "reports",
+    "integrations",
 ]
 
 MIDDLEWARE = [

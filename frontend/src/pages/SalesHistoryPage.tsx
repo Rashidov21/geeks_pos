@@ -1,6 +1,7 @@
 import type { SaleHistoryRow } from '../api'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { formatMoney } from '../utils/money'
 
 export function SalesHistoryPage({
   sales,
@@ -11,6 +12,7 @@ export function SalesHistoryPage({
   onExport,
   onVoid,
   canVoid,
+  canExport = true,
 }: {
   sales: SaleHistoryRow[]
   count: number
@@ -20,6 +22,7 @@ export function SalesHistoryPage({
   onExport: () => void
   onVoid: (saleId: string, reason: string) => Promise<void>
   canVoid: boolean
+  canExport?: boolean
 }) {
   const { t } = useTranslation()
   const [from, setFrom] = useState('')
@@ -53,18 +56,20 @@ export function SalesHistoryPage({
           {actionToast.message}
         </div>
       )}
-      <div className="flex gap-2 items-center">
-        <input type="date" className="px-2 py-1 rounded bg-slate-900 border border-slate-700" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input type="date" className="px-2 py-1 rounded bg-slate-900 border border-slate-700" value={to} onChange={(e) => setTo(e.target.value)} />
+      <div className="flex flex-wrap gap-2 items-center">
+        <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={to} onChange={(e) => setTo(e.target.value)} />
         <input
-          className="px-2 py-1 rounded bg-slate-900 border border-slate-700"
+          className="touch-btn min-h-12 flex-1 min-w-[10rem] px-3 rounded-xl bg-slate-900 border border-slate-700"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('admin.sales.searchPlaceholder')}
         />
-        <button type="button" className="px-3 py-1 rounded bg-slate-800 border border-slate-700" onClick={onExport}>
-          {t('admin.sales.exportCsv')}
-        </button>
+        {canExport && (
+          <button type="button" className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-700 font-medium" onClick={onExport}>
+            {t('admin.sales.exportCsv')}
+          </button>
+        )}
       </div>
       <p className="text-xs text-slate-400">{t('admin.sales.hint')}</p>
       <div className="rounded border border-slate-700 overflow-hidden">
@@ -86,12 +91,12 @@ export function SalesHistoryPage({
                 <td className="p-2">{s.cashier_username}</td>
                 <td className="p-2">{new Date(s.completed_at).toLocaleString()}</td>
                 <td className="p-2">{t(`status.${s.status}`, { defaultValue: s.status })}</td>
-                <td className="p-2 text-right">{s.grand_total}</td>
+                <td className="p-2 text-right">{formatMoney(s.grand_total)}</td>
                 <td className="p-2 text-right">
                   {canVoid && s.status !== 'VOIDED' && (
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-red-800 border border-red-600"
+                      className="touch-btn min-h-10 px-3 rounded-xl bg-red-800 border border-red-600 text-sm font-medium"
                       onClick={() => setVoiding(s)}
                     >
                       {t('admin.sales.void')}
@@ -113,18 +118,18 @@ export function SalesHistoryPage({
       <div className="flex justify-end gap-2">
         <button
           type="button"
-          className="px-3 py-1 rounded bg-slate-800 border border-slate-700"
+          className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-700 font-medium"
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
         >
           {t('admin.common.prev')}
         </button>
-        <div className="px-3 py-1 text-sm text-slate-400">
+        <div className="px-3 py-2 text-sm text-slate-400">
           {t('admin.common.pageOf', { page, maxPage })}
         </div>
         <button
           type="button"
-          className="px-3 py-1 rounded bg-slate-800 border border-slate-700"
+          className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-700 font-medium"
           disabled={page >= maxPage}
           onClick={() => onPage(page + 1)}
         >
@@ -138,18 +143,18 @@ export function SalesHistoryPage({
               {t('admin.sales.voidTitle', { saleId: voiding.id.slice(0, 8) })}
             </h3>
             <textarea
-              className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn w-full min-h-24 px-3 py-3 rounded-xl bg-slate-950 border border-slate-700"
               placeholder={t('admin.sales.voidReason')}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
-            <div className="flex justify-end gap-2">
-              <button type="button" className="px-3 py-2 rounded bg-slate-800 border border-slate-700" onClick={() => setVoiding(null)}>
+            <div className="flex justify-end gap-3">
+              <button type="button" className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-700" onClick={() => setVoiding(null)}>
                 {t('admin.common.cancel')}
               </button>
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-red-700 border border-red-500 disabled:opacity-50"
+                className="touch-btn min-h-12 px-5 rounded-xl bg-red-700 border border-red-500 disabled:opacity-50 font-medium"
                 disabled={voidBusy}
                 onClick={async () => {
                   if (!canVoid) {

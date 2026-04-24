@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Overly strict for common "sync local state from props / refetch" patterns used in this app.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

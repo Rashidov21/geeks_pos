@@ -108,6 +108,9 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
             "transliterate_uz": settings.transliterate_uz,
             "encoding": settings.encoding,
             "lang": _normalize_lang(lang),
+            "receipt_width": settings.receipt_width or "58mm",
+            "receipt_printer_name": settings.receipt_printer_name or "",
+            "label_printer_name": settings.label_printer_name or "",
         },
         "sale_id": str(sale.id),
         "completed_at": sale.completed_at.isoformat(),
@@ -142,24 +145,25 @@ def receipt_plain_text(receipt: dict) -> str:
         buf.append(t(store["address"]))
     if store.get("phone"):
         buf.append(f"{labels['tel']}: {t(store['phone'])}")
-    buf.append(_line_80mm(labels["sale"], receipt["sale_id"][:8]))
-    buf.append(_line_80mm(labels["time"], receipt["completed_at"][:19]))
-    buf.append(_line_80mm(labels["cashier"], t(receipt["cashier"])))
-    buf.append("-" * 42)
+    width = 42 if store.get("receipt_width") == "80mm" else 32
+    buf.append(_line_80mm(labels["sale"], receipt["sale_id"][:8], width=width))
+    buf.append(_line_80mm(labels["time"], receipt["completed_at"][:19], width=width))
+    buf.append(_line_80mm(labels["cashier"], t(receipt["cashier"]), width=width))
+    buf.append("-" * width)
 
     for ln in receipt["lines"]:
         title = t(f"{ln['name']} {ln['color']} {ln['size']}")
-        buf.append(title[:42])
-        buf.append(_line_80mm(f"{ln['qty']} x {ln['unit']}", ln["total"]))
+        buf.append(title[:width])
+        buf.append(_line_80mm(f"{ln['qty']} x {ln['unit']}", ln["total"], width=width))
 
-    buf.append("-" * 42)
-    buf.append(_line_80mm(labels["subtotal"], receipt["subtotal"]))
-    buf.append(_line_80mm(labels["discount"], receipt["discount_total"]))
-    buf.append(_line_80mm(labels["total"], receipt["grand_total"]))
+    buf.append("-" * width)
+    buf.append(_line_80mm(labels["subtotal"], receipt["subtotal"], width=width))
+    buf.append(_line_80mm(labels["discount"], receipt["discount_total"], width=width))
+    buf.append(_line_80mm(labels["total"], receipt["grand_total"], width=width))
     for p in receipt["payments"]:
         method_label = labels.get(f"method.{p['method']}", p["method"])
-        buf.append(_line_80mm(t(method_label), p["amount"]))
-    buf.append("-" * 42)
+        buf.append(_line_80mm(t(method_label), p["amount"], width=width))
+    buf.append("-" * width)
     footer = t(store.get("footer_note") or labels["footer"])
     if footer:
         buf.append(footer)
@@ -222,6 +226,39 @@ def receipt_escpos_bytes(receipt: dict) -> bytes:
 
     p.set(align="left")
     p.text(plain)
+    try:
+        p.cut(mode="PART")
+    except Exception:
+        p.text("\n\n")
+    return p.output
+
+
+def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> bytes:
+    settings = StoreSettings.get_solo()
+    p = Dummy()
+    try:
+        p.hw("INIT")
+        p.charcode((settings.encoding or "cp866").upper())
+    except Exception:
+        try:
+            p.charcode("CP866")
+        except Exception:
+            pass
+
+    name = f"{variant.product.name_uz} {variant.size.label_uz} {variant.color.label_uz}"
+    price = _format_amount(variant.list_price)
+    width = 32 if size == "40x30" else 42
+    for _ in range(max(1, int(copies))):
+        p.set(align="center", width=2, height=2)
+        p.text(f"{settings.brand_name[:width]}\n")
+        p.set(align="left", width=1, height=1)
+        p.text(f"{name[:width]}\n")
+        p.text(f"{variant.barcode}\n")
+        p.set(align="center", width=2, height=2)
+        p.text(f"{price}\n")
+        p.set(align="left")
+        p.barcode(variant.barcode or "", "CODE39", height=64, width=2, pos="BELOW", align_ct=True, check=False)
+        p.text("\n")
     try:
         p.cut(mode="PART")
     except Exception:

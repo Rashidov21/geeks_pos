@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Category, Color, Product, Size, Variant } from '../api'
+import type { BulkGridCell, Category, Color, Product, Size, Variant } from '../api'
 import { useTranslation } from 'react-i18next'
+import { formatMoney } from '../utils/money'
 
-type CreateVariantInput = {
+const STANDARD_COLOR_VALUES = [
+  'std_black',
+  'std_white',
+  'std_gray',
+  'std_brown',
+  'std_blue',
+  'std_red',
+  'std_yellow',
+  'std_green',
+  'std_beige',
+  'std_navy',
+] as const
+
+type WizardVariantForm = {
   product: string
   size: string
   color: string
@@ -21,7 +35,14 @@ export function CatalogPage({
   includeDeleted,
   setIncludeDeleted,
   page,
-  onCreateVariant,
+  onCreateVariantBulk,
+  onCreateCategory,
+  onCreateProduct,
+  onCreateSize,
+  onCreateColor,
+  onAdjustStockQuick,
+  onPrintSticker,
+  onPrintStickerQueue,
   onToggleVariant,
   onUpdateVariant,
   onFilter,
@@ -36,7 +57,17 @@ export function CatalogPage({
   includeDeleted: boolean
   setIncludeDeleted: (v: boolean) => void
   page: number
-  onCreateVariant: (payload: CreateVariantInput) => Promise<void>
+  onCreateVariantBulk: (payload: { product_id: string; matrix: BulkGridCell[] }) => Promise<void>
+  onCreateCategory: (payload: { name_uz: string; name_ru: string }) => Promise<void>
+  onCreateProduct: (payload: { category: string; name_uz: string; name_ru: string }) => Promise<void>
+  onCreateSize: (payload: { value: string; label_uz: string; label_ru: string; sort_order?: number }) => Promise<void>
+  onCreateColor: (payload: { value: string; label_uz: string; label_ru: string; sort_order?: number }) => Promise<void>
+  onAdjustStockQuick: (variantId: string, qtyDelta: number, note: string) => Promise<void>
+  onPrintSticker: (variantId: string, copies: number, size: '40x30' | '58mm') => Promise<void>
+  onPrintStickerQueue: (
+    items: Array<{ variant_id: string; copies: number }>,
+    size: '40x30' | '58mm',
+  ) => Promise<void>
   onToggleVariant: (v: Variant) => Promise<void>
   onUpdateVariant: (
     v: Variant,
@@ -45,8 +76,8 @@ export function CatalogPage({
   onFilter: (q: string) => void
   onPage: (page: number) => void
 }) {
-  const { t } = useTranslation()
-  const [form, setForm] = useState<CreateVariantInput>({
+  const { t, i18n } = useTranslation()
+  const [form, setForm] = useState<WizardVariantForm>({
     product: '',
     size: '',
     color: '',
@@ -55,34 +86,201 @@ export function CatalogPage({
     stock_qty: 0,
   })
   const [busy, setBusy] = useState(false)
+  const [seedBusy, setSeedBusy] = useState(false)
   const [editing, setEditing] = useState<Variant | null>(null)
   const [editPrice, setEditPrice] = useState('')
   const [editPurchase, setEditPurchase] = useState('')
   const [query, setQuery] = useState('')
-  const categoryById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories])
+  const [toast, setToast] = useState<string | null>(null)
+  const [selectedBrand, setSelectedBrand] = useState('')
+  const [newBrand, setNewBrand] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [newModel, setNewModel] = useState('')
+  const modelOptions = useMemo(
+    () => products.filter((p) => !selectedBrand || p.category === selectedBrand),
+    [products, selectedBrand],
+  )
   const maxPage = Math.max(1, Math.ceil(count / 20))
+  const [quickAdjust, setQuickAdjust] = useState<Variant | null>(null)
+  const [quickDelta, setQuickDelta] = useState(0)
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [queueSize, setQueueSize] = useState<'40x30' | '58mm'>('40x30')
+  const [queueMap, setQueueMap] = useState<Record<string, number>>({})
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1)
+  const [matrixCells, setMatrixCells] = useState<Record<string, { purchase: string; list: string; qty: string }>>({})
+
+  const shoeSizes = useMemo(() => {
+    return sizes
+      .filter((s) => {
+        const n = Number(s.value)
+        return Number.isFinite(n) && n >= 36 && n <= 45
+      })
+      .sort((a, b) => Number(a.value) - Number(b.value))
+  }, [sizes])
+
+  const orderedColors = useMemo(() => {
+    const std = STANDARD_COLOR_VALUES.map((val) => colors.find((c) => c.value === val)).filter(Boolean) as Color[]
+    const stdSet = new Set<string>([...STANDARD_COLOR_VALUES])
+    const rest = colors.filter((c) => !stdSet.has(c.value))
+    return [...std, ...rest]
+  }, [colors])
 
   useEffect(() => {
     const timer = setTimeout(() => onFilter(query.trim()), 300)
     return () => clearTimeout(timer)
   }, [query, onFilter])
 
-  async function submitVariant(e: React.FormEvent) {
-    e.preventDefault()
+  useEffect(() => {
+    if (wizardStep !== 3) return
+    setMatrixCells((prev) => {
+      const next = { ...prev }
+      for (const s of shoeSizes) {
+        if (!next[s.id]) next[s.id] = { purchase: '0', list: '0', qty: '0' }
+      }
+      return next
+    })
+  }, [wizardStep, shoeSizes])
+
+  function colorChipLabel(c: Color) {
+    const key = `catalog.colors.standard.${c.value}`
+    const translated = t(key)
+    if (translated !== key) return translated
+    return i18n.language.startsWith('ru') ? (c.label_ru || c.label_uz) : c.label_uz
+  }
+
+  function digitsOnly(v: string): string {
+    return (v || '').replace(/\D/g, '')
+  }
+
+  async function submitBulkVariant() {
+    const productId = selectedModel || form.product
+    if (!productId || !form.color) return
+    if (shoeSizes.length === 0) {
+      setToast(t('admin.catalog.wizard.needShoeSizes'))
+      return
+    }
+    const matrix: BulkGridCell[] = []
+    for (const s of shoeSizes) {
+      const cell = matrixCells[s.id] || { purchase: '0', list: '0', qty: '0' }
+      const qty = Math.max(0, Math.floor(Number(digitsOnly(cell.qty)) || 0))
+      const listInt = digitsOnly(cell.list) || '0'
+      const purchaseInt = digitsOnly(cell.purchase) || '0'
+      if (qty <= 0 && Number(listInt) <= 0 && Number(purchaseInt) <= 0) continue
+      matrix.push({
+        size_id: s.id,
+        color_id: form.color,
+        purchase_price: purchaseInt,
+        list_price: listInt,
+        initial_qty: qty,
+      })
+    }
+    if (matrix.length === 0) {
+      setToast(t('admin.catalog.wizard.bulkEmpty'))
+      return
+    }
     setBusy(true)
     try {
-      await onCreateVariant(form)
-      setForm((p) => ({ ...p, purchase_price: '0', list_price: '0', stock_qty: 0 }))
+      await onCreateVariantBulk({ product_id: productId, matrix })
+      setToast(t('admin.catalog.wizard.bulkSuccess'))
+      setForm((p: WizardVariantForm) => ({
+        ...p,
+        product: productId,
+        purchase_price: '0',
+        list_price: '0',
+        stock_qty: 0,
+        size: '',
+        color: '',
+      }))
+      setMatrixCells({})
+      setWizardStep(1)
+    } catch {
+      setToast(t('admin.catalog.wizard.bulkError'))
     } finally {
       setBusy(false)
     }
   }
 
+  function wizardNext() {
+    if (wizardStep === 1) {
+      if (!selectedBrand) {
+        setToast(t('admin.catalog.wizard.needBrand'))
+        return
+      }
+      if (!(selectedModel || form.product)) {
+        setToast(t('admin.catalog.wizard.needModel'))
+        return
+      }
+      setWizardStep(2)
+      return
+    }
+    if (wizardStep === 2) {
+      if (!form.color) {
+        setToast(t('admin.catalog.wizard.needColor'))
+        return
+      }
+      setWizardStep(3)
+      return
+    }
+  }
+
+  async function createBrandAndSelect() {
+    const name = newBrand.trim()
+    if (!name) return
+    setBusy(true)
+    try {
+      await onCreateCategory({ name_uz: name, name_ru: name })
+      setSelectedBrand('')
+      setNewBrand('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function createModelAndSelect() {
+    const model = newModel.trim()
+    const brand = selectedBrand
+    if (!model || !brand) return
+    setBusy(true)
+    try {
+      await onCreateProduct({ category: brand, name_uz: model, name_ru: model })
+      setSelectedModel('')
+      setNewModel('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function seedStandardSizesColors() {
+    setSeedBusy(true)
+    try {
+      const sizeValues = Array.from({ length: 10 }, (_, i) => String(36 + i))
+      for (const value of sizeValues) {
+        if (!sizes.some((s) => s.label_uz === value)) {
+          await onCreateSize({ value, label_uz: value, label_ru: value, sort_order: Number(value) })
+        }
+      }
+      /* Standart ranglar migratsiya orqali (std_*) bazaga qo'shiladi */
+    } finally {
+      setSeedBusy(false)
+    }
+  }
+
+  function addToQueue(variantId: string) {
+    setQueueMap((p) => ({ ...p, [variantId]: Math.max(1, (p[variantId] || 0) + 1) }))
+  }
+
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 relative">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{t('admin.catalog.title')}</h2>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-sm"
+            onClick={() => setQueueOpen(true)}
+          >
+            {t('admin.catalog.printQueue')}
+          </button>
           <input
             className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-sm"
             value={query}
@@ -99,70 +297,242 @@ export function CatalogPage({
           </label>
         </div>
       </div>
+      {toast && <div className="px-3 py-2 rounded text-sm border border-slate-700 bg-slate-900">{toast}</div>}
       <p className="text-xs text-slate-400">{t('admin.catalog.hint')}</p>
 
-      <form className="rounded border border-slate-700 bg-slate-900 p-3 grid md:grid-cols-6 gap-2" onSubmit={submitVariant}>
-        <select
-          className="px-2 py-2 rounded bg-slate-950 border border-slate-700"
-          value={form.product}
-          onChange={(e) => setForm({ ...form, product: e.target.value })}
-          required
-        >
-          <option value="">{t('admin.catalog.product')}</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name_uz} ({categoryById[p.category]?.name_uz ?? t('admin.common.na')})
-            </option>
-          ))}
-        </select>
-        <select
-          className="px-2 py-2 rounded bg-slate-950 border border-slate-700"
-          value={form.size}
-          onChange={(e) => setForm({ ...form, size: e.target.value })}
-          required
-        >
-          <option value="">{t('admin.catalog.size')}</option>
-          {sizes.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.label_uz}
-            </option>
-          ))}
-        </select>
-        <select
-          className="px-2 py-2 rounded bg-slate-950 border border-slate-700"
-          value={form.color}
-          onChange={(e) => setForm({ ...form, color: e.target.value })}
-          required
-        >
-          <option value="">{t('admin.catalog.color')}</option>
-          {colors.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label_uz}
-            </option>
-          ))}
-        </select>
-        <input
-          className="px-2 py-2 rounded bg-slate-950 border border-slate-700"
-          placeholder={t('admin.catalog.purchase')}
-          value={form.purchase_price}
-          onChange={(e) => setForm({ ...form, purchase_price: e.target.value })}
-          required
-        />
-        <input
-          className="px-2 py-2 rounded bg-slate-950 border border-slate-700"
-          placeholder={t('admin.catalog.sale')}
-          value={form.list_price}
-          onChange={(e) => setForm({ ...form, list_price: e.target.value })}
-          required
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-40"
-        >
-          {busy ? t('admin.common.saving') : t('admin.catalog.addVariant')}
-        </button>
-      </form>
+      <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-medium text-slate-200">
+            {t('admin.catalog.wizard.progress', { step: wizardStep })}
+          </div>
+          <div className="flex gap-2">
+            {[1, 2, 3].map((s) => (
+              <div
+                key={s}
+                className={`h-2 w-10 rounded-full ${wizardStep >= s ? 'bg-emerald-500' : 'bg-slate-700'}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {wizardStep === 1 && (
+          <div className="space-y-3">
+            <div className="text-base text-slate-100">{t('admin.catalog.wizard.step1Title')}</div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <select
+                className="touch-btn min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                value={selectedBrand}
+                onChange={(e) => {
+                  setSelectedBrand(e.target.value)
+                  setSelectedModel('')
+                }}
+              >
+                <option value="">{t('admin.catalog.brand')}</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name_uz}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <input
+                  className="touch-btn min-h-14 flex-1 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                  value={newBrand}
+                  onChange={(e) => setNewBrand(e.target.value)}
+                  placeholder={t('admin.catalog.newBrand')}
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="touch-btn min-h-14 px-4 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 shrink-0"
+                  onClick={() => void createBrandAndSelect()}
+                >
+                  {t('admin.catalog.addBrand')}
+                </button>
+              </div>
+              <select
+                className="touch-btn min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base md:col-span-2"
+                value={selectedModel}
+                onChange={(e) => {
+                  setSelectedModel(e.target.value)
+                  setForm((p: WizardVariantForm) => ({ ...p, product: e.target.value }))
+                }}
+                disabled={!selectedBrand}
+              >
+                <option value="">{t('admin.catalog.model')}</option>
+                {modelOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name_uz}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-2 md:col-span-2">
+                <input
+                  className="touch-btn min-h-14 flex-1 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                  value={newModel}
+                  onChange={(e) => setNewModel(e.target.value)}
+                  placeholder={t('admin.catalog.newModel')}
+                />
+                <button
+                  type="button"
+                  disabled={busy || !selectedBrand}
+                  className="touch-btn min-h-14 px-4 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 shrink-0"
+                  onClick={() => void createModelAndSelect()}
+                >
+                  {t('admin.catalog.addModel')}
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={seedBusy}
+                className="touch-btn min-h-14 px-5 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40"
+                onClick={() => void seedStandardSizesColors()}
+              >
+                {seedBusy ? t('admin.common.saving') : t('admin.catalog.seedStandard')}
+              </button>
+              <button
+                type="button"
+                className="touch-btn min-h-14 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-semibold"
+                onClick={() => wizardNext()}
+              >
+                {t('admin.catalog.wizard.next')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 2 && (
+          <div className="space-y-4">
+            <div className="text-base text-slate-100">{t('admin.catalog.wizard.step2ColorTitle')}</div>
+            <p className="text-sm text-slate-400">{t('admin.catalog.wizard.step2ColorHint')}</p>
+            <div>
+              <div className="text-sm text-slate-400 mb-2">{t('admin.catalog.color')}</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                {orderedColors.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`touch-btn min-h-14 rounded-xl border text-sm font-medium px-2 ${
+                      form.color === c.id
+                        ? 'bg-emerald-700 border-emerald-400 ring-2 ring-emerald-500/50'
+                        : 'bg-slate-950 border-slate-700'
+                    }`}
+                    onClick={() => setForm((f: WizardVariantForm) => ({ ...f, color: c.id }))}
+                  >
+                    {colorChipLabel(c)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-between gap-3 pt-2">
+              <button
+                type="button"
+                className="touch-btn min-h-14 px-6 rounded-xl bg-slate-800 border border-slate-600"
+                onClick={() => setWizardStep(1)}
+              >
+                {t('admin.catalog.wizard.back')}
+              </button>
+              <button
+                type="button"
+                className="touch-btn min-h-14 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-semibold"
+                onClick={() => wizardNext()}
+              >
+                {t('admin.catalog.wizard.next')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 3 && (
+          <div className="space-y-4">
+            <div className="text-base text-slate-100">{t('admin.catalog.wizard.step3MatrixTitle')}</div>
+            <p className="text-sm text-slate-400">{t('admin.catalog.wizard.step3MatrixHint')}</p>
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm min-w-[32rem]">
+                <thead className="bg-slate-950 text-slate-400">
+                  <tr>
+                    <th className="text-left p-3">{t('admin.catalog.size')}</th>
+                    <th className="text-left p-3">{t('admin.catalog.purchase')}</th>
+                    <th className="text-left p-3">{t('admin.catalog.sale')}</th>
+                    <th className="text-right p-3">{t('admin.catalog.stock')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shoeSizes.map((s) => {
+                    const cell = matrixCells[s.id] || { purchase: '0', list: '0', qty: '0' }
+                    return (
+                      <tr key={s.id} className="border-t border-slate-800">
+                        <td className="p-2 font-semibold text-slate-200">{s.label_uz}</td>
+                        <td className="p-2">
+                          <input
+                            className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
+                            inputMode="numeric"
+                            value={formatMoney(digitsOnly(cell.purchase) || '0')}
+                            onChange={(e) =>
+                              setMatrixCells((prev) => ({
+                                ...prev,
+                                [s.id]: { ...cell, purchase: digitsOnly(e.target.value) || '0' },
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
+                            inputMode="numeric"
+                            value={formatMoney(digitsOnly(cell.list) || '0')}
+                            onChange={(e) =>
+                              setMatrixCells((prev) => ({
+                                ...prev,
+                                [s.id]: { ...cell, list: digitsOnly(e.target.value) || '0' },
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
+                            inputMode="numeric"
+                            value={digitsOnly(cell.qty)}
+                            onChange={(e) =>
+                              setMatrixCells((prev) => ({
+                                ...prev,
+                                [s.id]: { ...cell, qty: digitsOnly(e.target.value) },
+                              }))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-slate-500">{t('admin.catalog.barcodeAuto')}</p>
+            <div className="flex flex-wrap justify-between gap-3 pt-2">
+              <button
+                type="button"
+                className="touch-btn min-h-14 px-6 rounded-xl bg-slate-800 border border-slate-600"
+                onClick={() => {
+                  setWizardStep(2)
+                }}
+              >
+                {t('admin.catalog.wizard.back')}
+              </button>
+              <button
+                type="button"
+                disabled={busy || !(selectedModel || form.product)}
+                className="touch-btn min-h-14 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-semibold disabled:opacity-40"
+                onClick={() => void submitBulkVariant()}
+              >
+                {busy ? t('admin.common.saving') : t('admin.catalog.wizard.submitBulk')}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="rounded border border-slate-700 overflow-hidden">
         <table className="w-full text-sm">
@@ -182,8 +552,19 @@ export function CatalogPage({
                 <td className="p-2">{v.product_name_uz}</td>
                 <td className="p-2">{v.size_label_uz} / {v.color_label_uz}</td>
                 <td className="p-2">{v.barcode}</td>
-                <td className="p-2 text-right">{v.stock_qty}</td>
-                <td className="p-2 text-right">{v.list_price}</td>
+                <td className="p-2 text-right">
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                    onClick={() => {
+                      setQuickAdjust(v)
+                      setQuickDelta(0)
+                    }}
+                  >
+                    {v.stock_qty} {t('admin.catalog.stockUnit')}
+                  </button>
+                </td>
+                <td className="p-2 text-right">{formatMoney(v.list_price)}</td>
                 <td className="p-2 text-right">
                   <div className="inline-flex gap-2">
                     <button
@@ -200,6 +581,27 @@ export function CatalogPage({
                     <button
                       type="button"
                       className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                      onClick={() => void addToQueue(v.id)}
+                    >
+                      {t('admin.catalog.queueAdd')}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                      onClick={async () => {
+                        try {
+                          await onPrintSticker(v.id, 1, '40x30')
+                          setToast(t('admin.catalog.stickerPrinted'))
+                        } catch {
+                          setToast(t('err.LABEL_PRINT_FAILED'))
+                        }
+                      }}
+                    >
+                      {t('admin.catalog.printSticker')}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
                       onClick={() => void onToggleVariant(v)}
                     >
                       {v.is_active ? t('admin.catalog.deactivate') : t('admin.catalog.activate')}
@@ -210,15 +612,8 @@ export function CatalogPage({
             ))}
             {variants.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-slate-500">
-                  {t('admin.catalog.empty')}
-                </td>
-              </tr>
-            )}
-            {variants.length === 0 && query && (
-              <tr>
-                <td colSpan={6} className="p-2 text-center text-xs text-slate-400">
-                  {t('admin.catalog.emptyFiltered')}
+                <td colSpan={6} className="p-8 text-center text-slate-400">
+                  <div className="text-slate-300 mb-1">{query ? t('admin.catalog.emptyFiltered') : t('admin.catalog.empty')}</div>
                 </td>
               </tr>
             )}
@@ -247,8 +642,138 @@ export function CatalogPage({
         </button>
       </div>
 
+      {quickAdjust && (
+        <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-lg font-semibold">{t('admin.catalog.quickAdjust')}</h3>
+            <div className="text-sm text-slate-400">{quickAdjust.product_name_uz} / {quickAdjust.barcode}</div>
+            <div className="text-center text-3xl font-semibold">{quickDelta > 0 ? `+${quickDelta}` : quickDelta}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="py-4 rounded bg-red-800 border border-red-600 text-2xl"
+                onClick={() => setQuickDelta((p) => p - 1)}
+              >
+                -
+              </button>
+              <button
+                type="button"
+                className="py-4 rounded bg-emerald-800 border border-emerald-600 text-2xl"
+                onClick={() => setQuickDelta((p) => p + 1)}
+              >
+                +
+              </button>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                onClick={() => setQuickAdjust(null)}
+              >
+                {t('admin.common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+                onClick={async () => {
+                  if (quickDelta === 0) return
+                  await onAdjustStockQuick(quickAdjust.id, quickDelta, 'Quick adjust')
+                  setToast(t('admin.inventory.adjustSuccess'))
+                  setQuickAdjust(null)
+                }}
+              >
+                {t('admin.common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {queueOpen && (
+        <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-lg font-semibold">{t('admin.catalog.printQueue')}</h3>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">{t('admin.catalog.labelSize')}</label>
+              <select
+                className="px-2 py-1 rounded bg-slate-950 border border-slate-700"
+                value={queueSize}
+                onChange={(e) => setQueueSize(e.target.value as '40x30' | '58mm')}
+              >
+                <option value="40x30">40x30</option>
+                <option value="58mm">58mm</option>
+              </select>
+            </div>
+            <div className="max-h-72 overflow-auto rounded border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-950 text-slate-400">
+                  <tr>
+                    <th className="text-left p-2">{t('admin.catalog.product')}</th>
+                    <th className="text-left p-2">{t('admin.catalog.barcode')}</th>
+                    <th className="text-right p-2">{t('admin.catalog.copies')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(queueMap).map(([variantId, copies]) => {
+                    const v = variants.find((row) => row.id === variantId)
+                    if (!v) return null
+                    return (
+                      <tr key={variantId} className="border-t border-slate-800">
+                        <td className="p-2">{v.product_name_uz}</td>
+                        <td className="p-2">{v.barcode}</td>
+                        <td className="p-2 text-right">
+                          <input
+                            className="w-20 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-right"
+                            value={String(copies)}
+                            onChange={(e) =>
+                              setQueueMap((p) => ({ ...p, [variantId]: Math.max(1, Number(e.target.value || '1')) }))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {Object.keys(queueMap).length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="p-4 text-center text-slate-500">{t('admin.catalog.queueEmpty')}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                onClick={() => setQueueOpen(false)}
+              >
+                {t('admin.common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+                onClick={async () => {
+                  const items = Object.entries(queueMap).map(([variant_id, copies]) => ({ variant_id, copies }))
+                  if (items.length === 0) return
+                  try {
+                    await onPrintStickerQueue(items, queueSize)
+                    setToast(t('admin.catalog.queuePrinted'))
+                    setQueueMap({})
+                    setQueueOpen(false)
+                  } catch {
+                    setToast(t('err.LABEL_QUEUE_FAILED'))
+                  }
+                }}
+              >
+                {t('admin.catalog.printQueue')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4">
+        <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
             <h3 className="text-lg font-semibold">{t('admin.catalog.editVariant')}</h3>
             <div className="text-sm text-slate-400">{editing.product_name_uz} / {editing.barcode}</div>

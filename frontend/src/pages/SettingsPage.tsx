@@ -1,10 +1,14 @@
-import { useState } from 'react'
-import type { StocktakeSession, StoreSettings } from '../api'
+import { useEffect, useMemo, useState } from 'react'
+import type { IntegrationSettings, StocktakeSession, StoreSettings } from '../api'
 import { useTranslation } from 'react-i18next'
+import { labelPrinterStatus, receiptPrinterStatus } from '../utils/hardwareStatus'
 
 export function SettingsPage({
   settings,
+  integrations,
   onSave,
+  onSaveIntegrations,
+  onSendZReport,
   stocktake,
   onCreateStocktake,
   onSetCount,
@@ -14,14 +18,24 @@ export function SettingsPage({
   canManageInventory,
 }: {
   settings: StoreSettings | null
+  integrations: IntegrationSettings | null
   onSave: (data: {
     brand_name: string
     phone: string
     address: string
     footer_note: string
     transliterate_uz: boolean
+    receipt_printer_name: string
+    label_printer_name: string
+    receipt_width: '58mm' | '80mm'
+    auto_print_on_sale: boolean
+    scanner_mode: 'keyboard' | 'serial'
+    scanner_prefix: string
+    scanner_suffix: string
     logo?: File | null
   }) => Promise<void>
+  onSaveIntegrations: (data: IntegrationSettings) => Promise<void>
+  onSendZReport: () => Promise<unknown>
   stocktake: StocktakeSession | null
   onCreateStocktake: (note: string) => Promise<void>
   onSetCount: (variantId: string, countedQty: number) => Promise<void>
@@ -31,6 +45,7 @@ export function SettingsPage({
   canManageInventory: boolean
 }) {
   const { t } = useTranslation()
+  const [activeTab, setActiveTab] = useState<'store' | 'bots'>('store')
   const [actionToast, setActionToast] = useState<{
     kind: 'ok' | 'err'
     message: string
@@ -48,13 +63,86 @@ export function SettingsPage({
     address: settings?.address ?? '',
     footer_note: settings?.footer_note ?? '',
     transliterate_uz: settings?.transliterate_uz ?? true,
+    receipt_printer_name: settings?.receipt_printer_name ?? '',
+    label_printer_name: settings?.label_printer_name ?? '',
+    receipt_width: settings?.receipt_width ?? '58mm',
+    auto_print_on_sale: settings?.auto_print_on_sale ?? true,
+    scanner_mode: settings?.scanner_mode ?? 'keyboard',
+    scanner_prefix: settings?.scanner_prefix ?? '',
+    scanner_suffix: settings?.scanner_suffix ?? '\t',
+  })
+  const [printerOptions, setPrinterOptions] = useState<string[]>([])
+  const [scannerTest, setScannerTest] = useState('')
+  const [scannerTestOk, setScannerTestOk] = useState(false)
+  const [hwStep, setHwStep] = useState<1 | 2 | 3>(1)
+  const [integrationForm, setIntegrationForm] = useState<IntegrationSettings>({
+    telegram_bot_token: integrations?.telegram_bot_token ?? '',
+    telegram_chat_id: integrations?.telegram_chat_id ?? '',
+    whatsapp_api_base: integrations?.whatsapp_api_base ?? '',
+    whatsapp_api_token: integrations?.whatsapp_api_token ?? '',
+    whatsapp_sender: integrations?.whatsapp_sender ?? '',
   })
 
-  if (!settings) {
+  useEffect(() => {
+    setForm({
+      brand_name: settings?.brand_name ?? '',
+      phone: settings?.phone ?? '',
+      address: settings?.address ?? '',
+      footer_note: settings?.footer_note ?? '',
+      transliterate_uz: settings?.transliterate_uz ?? true,
+      receipt_printer_name: settings?.receipt_printer_name ?? '',
+      label_printer_name: settings?.label_printer_name ?? '',
+      receipt_width: settings?.receipt_width ?? '58mm',
+      auto_print_on_sale: settings?.auto_print_on_sale ?? true,
+      scanner_mode: settings?.scanner_mode ?? 'keyboard',
+      scanner_prefix: settings?.scanner_prefix ?? '',
+      scanner_suffix: settings?.scanner_suffix ?? '\t',
+    })
+  }, [settings])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri')
+        const names = await invoke<string[]>('list_printers')
+        if (Array.isArray(names)) setPrinterOptions(names)
+      } catch {
+        setPrinterOptions([])
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    setIntegrationForm({
+      telegram_bot_token: integrations?.telegram_bot_token ?? '',
+      telegram_chat_id: integrations?.telegram_chat_id ?? '',
+      whatsapp_api_base: integrations?.whatsapp_api_base ?? '',
+      whatsapp_api_token: integrations?.whatsapp_api_token ?? '',
+      whatsapp_sender: integrations?.whatsapp_sender ?? '',
+    })
+  }, [integrations])
+
+  const receiptHw = useMemo(
+    () => receiptPrinterStatus(printerOptions, form.receipt_printer_name),
+    [printerOptions, form.receipt_printer_name],
+  )
+  const labelHw = useMemo(
+    () => labelPrinterStatus(printerOptions, form.label_printer_name),
+    [printerOptions, form.label_printer_name],
+  )
+
+  const hardwareAlert =
+    receiptHw === 'missing' || labelHw === 'missing'
+      ? 'err'
+      : receiptHw === 'no_device_list' || labelHw === 'no_device_list'
+        ? 'warn'
+        : 'ok'
+
+  if (!settings && !integrations) {
     return <div className="p-4">{t('admin.common.loading')}</div>
   }
 
-  async function runAction(label: string, fn: () => Promise<void>) {
+  async function runAction(label: string, fn: () => Promise<unknown>) {
     try {
       await fn()
       setActionToast({ kind: 'ok', message: t('admin.settings.actionCompleted', { label }) })
@@ -70,6 +158,22 @@ export function SettingsPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.settings.title')}</h2>
+      <div className="inline-flex rounded-xl border border-slate-700 overflow-hidden">
+        <button
+          type="button"
+          className={`touch-btn px-5 py-3 text-sm ${activeTab === 'store' ? 'bg-emerald-700' : 'bg-slate-900'}`}
+          onClick={() => setActiveTab('store')}
+        >
+          {t('admin.settings.tabStore')}
+        </button>
+        <button
+          type="button"
+          className={`touch-btn px-5 py-3 text-sm ${activeTab === 'bots' ? 'bg-emerald-700' : 'bg-slate-900'}`}
+          onClick={() => setActiveTab('bots')}
+        >
+          {t('admin.settings.tabBots')}
+        </button>
+      </div>
       {actionToast && (
         <div
           className={`px-3 py-2 rounded text-sm border ${
@@ -81,66 +185,321 @@ export function SettingsPage({
           {actionToast.message}
         </div>
       )}
-      {settings.logo_url && (
-        <img src={settings.logo_url} alt="logo" className="h-20 object-contain bg-white p-2 rounded" />
+      {activeTab === 'store' && (
+        <>
+          {settings?.logo_url && (
+            <img src={settings.logo_url} alt="logo" className="h-20 object-contain bg-white p-2 rounded" />
+          )}
+          <form
+            className="space-y-2 max-w-2xl"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setBusy(true)
+              try {
+                await onSave({ ...form, logo })
+                setActionToast({ kind: 'ok', message: t('admin.settings.savedToast') })
+              } catch (e: unknown) {
+                const code = (e as Error & { code?: string }).code
+                const message = t(`err.${code || 'UNKNOWN'}`, {
+                  defaultValue: t('admin.settings.actionFailed', { label: t('admin.settings.saveSettings') }),
+                })
+                setActionToast({ kind: 'err', message })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <input
+              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
+              value={form.brand_name}
+              onChange={(e) => setForm({ ...form, brand_name: e.target.value })}
+              placeholder={t('admin.settings.brandName')}
+            />
+            <input
+              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              placeholder={t('admin.settings.phone')}
+            />
+            <input
+              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              placeholder={t('admin.settings.address')}
+            />
+            <input
+              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
+              value={form.footer_note}
+              onChange={(e) => setForm({ ...form, footer_note: e.target.value })}
+              placeholder={t('admin.settings.footer')}
+            />
+            <div
+              className={`rounded-xl border p-3 text-sm ${
+                hardwareAlert === 'err'
+                  ? 'border-red-600 bg-red-950/40 text-red-100'
+                  : hardwareAlert === 'warn'
+                    ? 'border-amber-600 bg-amber-950/30 text-amber-100'
+                    : 'border-emerald-800 bg-emerald-950/20 text-emerald-100'
+              }`}
+            >
+              <div className="font-medium text-base">{t('admin.settings.printersTitle')}</div>
+              <ul className="mt-2 list-disc list-inside text-xs space-y-1 opacity-95">
+                <li>
+                  {receiptHw === 'ok' && t('admin.settings.statusReceiptOk')}
+                  {receiptHw === 'default_printer' && t('admin.settings.statusReceiptDefault')}
+                  {receiptHw === 'missing' && t('admin.settings.statusReceiptMissing')}
+                  {receiptHw === 'no_device_list' && t('admin.settings.statusReceiptNoList')}
+                </li>
+                <li>
+                  {labelHw === 'ok' && t('admin.settings.statusLabelOk')}
+                  {labelHw === 'default_printer' && t('admin.settings.statusLabelDefault')}
+                  {labelHw === 'missing' && t('admin.settings.statusLabelMissing')}
+                  {labelHw === 'no_device_list' && t('admin.settings.statusLabelNoList')}
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4 max-w-2xl">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-semibold text-slate-100">{t('admin.settings.hwWizard.title')}</h3>
+                <div className="flex gap-1">
+                  {[1, 2, 3].map((s) => (
+                    <div
+                      key={s}
+                      className={`h-2 w-8 rounded-full ${hwStep >= s ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">{t('admin.settings.hwWizard.doneHint')}</p>
+              <datalist id="printer-options">
+                {printerOptions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+
+              {hwStep === 1 && (
+                <div className="space-y-3">
+                  <div className="text-slate-300">{t('admin.settings.hwWizard.step1')}</div>
+                  <input
+                    list="printer-options"
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.receipt_printer_name}
+                    onChange={(e) => setForm({ ...form, receipt_printer_name: e.target.value })}
+                    placeholder={t('admin.settings.receiptPrinterName')}
+                  />
+                  <select
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.receipt_width}
+                    onChange={(e) => setForm({ ...form, receipt_width: e.target.value as '58mm' | '80mm' })}
+                  >
+                    <option value="58mm">58mm</option>
+                    <option value="80mm">80mm</option>
+                  </select>
+                  <label className="flex items-center gap-3 min-h-12 text-base">
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5"
+                      checked={form.auto_print_on_sale}
+                      onChange={(e) => setForm({ ...form, auto_print_on_sale: e.target.checked })}
+                    />
+                    {t('admin.settings.autoPrintOnSale')}
+                  </label>
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-medium"
+                      onClick={() => setHwStep(2)}
+                    >
+                      {t('admin.settings.hwWizard.next')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {hwStep === 2 && (
+                <div className="space-y-3">
+                  <div className="text-slate-300">{t('admin.settings.hwWizard.step2')}</div>
+                  <input
+                    list="printer-options"
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.label_printer_name}
+                    onChange={(e) => setForm({ ...form, label_printer_name: e.target.value })}
+                    placeholder={t('admin.settings.labelPrinterName')}
+                  />
+                  <div className="flex justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 px-6 rounded-xl bg-slate-800 border border-slate-600"
+                      onClick={() => setHwStep(1)}
+                    >
+                      {t('admin.settings.hwWizard.back')}
+                    </button>
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-medium"
+                      onClick={() => setHwStep(3)}
+                    >
+                      {t('admin.settings.hwWizard.next')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {hwStep === 3 && (
+                <div className="space-y-3">
+                  <div className="text-slate-300">{t('admin.settings.hwWizard.step3')}</div>
+                  <select
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.scanner_mode}
+                    onChange={(e) => setForm({ ...form, scanner_mode: e.target.value as 'keyboard' | 'serial' })}
+                  >
+                    <option value="keyboard">{t('admin.settings.scannerModeKeyboard')}</option>
+                    <option value="serial">{t('admin.settings.scannerModeSerial')}</option>
+                  </select>
+                  {form.scanner_mode === 'serial' && (
+                    <p className="text-xs text-amber-200/90 rounded-lg border border-amber-700/50 bg-amber-950/30 p-2">
+                      {t('admin.settings.scannerSerialHint')}
+                    </p>
+                  )}
+                  <input
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.scanner_prefix}
+                    onChange={(e) => setForm({ ...form, scanner_prefix: e.target.value })}
+                    placeholder={t('admin.settings.scannerPrefix')}
+                  />
+                  <input
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={form.scanner_suffix}
+                    onChange={(e) => setForm({ ...form, scanner_suffix: e.target.value })}
+                    placeholder={t('admin.settings.scannerSuffix')}
+                  />
+                  <input
+                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    value={scannerTest}
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      const suffixRaw = (form.scanner_suffix || '').trim()
+                      const suffix = suffixRaw === '\\t' ? '\t' : suffixRaw === '\\n' ? '\n' : suffixRaw
+                      const normalized = suffix && raw.includes(suffix) ? raw.replaceAll(suffix, '') : raw
+                      setScannerTest(normalized)
+                      setScannerTestOk(Boolean(normalized.trim()))
+                    }}
+                    placeholder={t('admin.settings.scannerTestField')}
+                  />
+                  {scannerTestOk && <div className="text-sm text-emerald-400">{t('admin.settings.scannerTestOk')}</div>}
+                  <div className="flex justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 px-6 rounded-xl bg-slate-800 border border-slate-600"
+                      onClick={() => setHwStep(2)}
+                    >
+                      {t('admin.settings.hwWizard.back')}
+                    </button>
+                    <button
+                      type="button"
+                      className="touch-btn min-h-12 px-6 rounded-xl bg-emerald-800 border border-emerald-600 font-medium"
+                      onClick={() => setHwStep(1)}
+                    >
+                      {t('admin.settings.hwWizard.restartWizard')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <label className="text-sm flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.transliterate_uz}
+                onChange={(e) => setForm({ ...form, transliterate_uz: e.target.checked })}
+              />
+              {t('admin.settings.transliterate')}
+            </label>
+            <input type="file" accept="image/*" onChange={(e) => setLogo(e.target.files?.[0] ?? null)} />
+            <p className="text-xs text-slate-500">{t('admin.settings.logoHint')}</p>
+            <button
+              type="submit"
+              disabled={busy}
+              className="touch-btn min-h-14 px-6 rounded-xl bg-emerald-700 border border-emerald-500 disabled:opacity-40 text-base font-semibold"
+            >
+              {busy ? t('admin.common.saving') : t('admin.settings.saveSettings')}
+            </button>
+          </form>
+          <p className="text-xs text-slate-400">{t('admin.settings.headerHint')}</p>
+        </>
       )}
-      <form
-        className="space-y-2 max-w-2xl"
-        onSubmit={async (e) => {
-          e.preventDefault()
-          setBusy(true)
-          try {
-            await runAction(t('admin.settings.saveSettings'), () => onSave({ ...form, logo }))
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <input
-          className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700"
-          value={form.brand_name}
-          onChange={(e) => setForm({ ...form, brand_name: e.target.value })}
-          placeholder={t('admin.settings.brandName')}
-        />
-        <input
-          className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700"
-          value={form.phone}
-          onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          placeholder={t('admin.settings.phone')}
-        />
-        <input
-          className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700"
-          value={form.address}
-          onChange={(e) => setForm({ ...form, address: e.target.value })}
-          placeholder={t('admin.settings.address')}
-        />
-        <input
-          className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700"
-          value={form.footer_note}
-          onChange={(e) => setForm({ ...form, footer_note: e.target.value })}
-          placeholder={t('admin.settings.footer')}
-        />
-        <label className="text-sm flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={form.transliterate_uz}
-            onChange={(e) => setForm({ ...form, transliterate_uz: e.target.checked })}
-          />
-          {t('admin.settings.transliterate')}
-        </label>
-        <input type="file" accept="image/*" onChange={(e) => setLogo(e.target.files?.[0] ?? null)} />
-        <p className="text-xs text-slate-500">{t('admin.settings.logoHint')}</p>
-        <button
-          type="submit"
-          disabled={busy}
-          className="px-4 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-40"
-        >
-          {busy ? t('admin.common.saving') : t('admin.settings.saveSettings')}
-        </button>
-      </form>
-      <p className="text-xs text-slate-400">
-        {t('admin.settings.headerHint')}
-      </p>
+      {activeTab === 'bots' && (
+        <div className="space-y-3 max-w-2xl">
+          <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
+            <h3 className="font-medium">{t('admin.bots.telegram')}</h3>
+            <input
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.telegram_bot_token}
+              onChange={(e) => setIntegrationForm((p) => ({ ...p, telegram_bot_token: e.target.value }))}
+              placeholder={t('admin.bots.telegramToken')}
+            />
+            <input
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.telegram_chat_id}
+              onChange={(e) => setIntegrationForm((p) => ({ ...p, telegram_chat_id: e.target.value }))}
+              placeholder={t('admin.bots.telegramChatId')}
+            />
+          </div>
+          <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
+            <h3 className="font-medium">{t('admin.bots.whatsapp')}</h3>
+            <input
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.whatsapp_api_base}
+              onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_base: e.target.value }))}
+              placeholder={t('admin.bots.whatsappApiBase')}
+            />
+            <input
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.whatsapp_api_token}
+              onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_token: e.target.value }))}
+              placeholder={t('admin.bots.whatsappToken')}
+            />
+            <input
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.whatsapp_sender}
+              onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_sender: e.target.value }))}
+              placeholder={t('admin.bots.whatsappSender')}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              className="px-4 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-40"
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  await runAction(t('admin.bots.save'), () => onSaveIntegrations(integrationForm))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              {t('admin.bots.save')}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="px-4 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-40"
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  await runAction(t('admin.bots.sendZReport'), () => onSendZReport())
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              {t('admin.bots.sendZReport')}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex gap-2 items-center">
         <button
           type="button"

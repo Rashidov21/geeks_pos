@@ -16,6 +16,13 @@ class StoreSettings(models.Model):
     # Printer language behavior
     encoding = models.CharField(max_length=32, default="cp866")
     transliterate_uz = models.BooleanField(default=True)
+    receipt_printer_name = models.CharField(max_length=255, blank=True, default="")
+    label_printer_name = models.CharField(max_length=255, blank=True, default="")
+    receipt_width = models.CharField(max_length=8, default="58mm")
+    auto_print_on_sale = models.BooleanField(default=True)
+    scanner_mode = models.CharField(max_length=16, default="keyboard")
+    scanner_prefix = models.CharField(max_length=16, blank=True, default="")
+    scanner_suffix = models.CharField(max_length=16, blank=True, default="\t")
 
     updated_at = models.DateTimeField(auto_now=True)
 
