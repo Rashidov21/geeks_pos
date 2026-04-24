@@ -141,6 +141,7 @@ export function PosPage({
   const [lastSaleId, setLastSaleId] = useState<string | null>(null)
   const [clearArmed, setClearArmed] = useState(false)
   const [orderDiscount, setOrderDiscount] = useState('0')
+  const [debtDueDate, setDebtDueDate] = useState('')
   const [scannerPrefix, setScannerPrefix] = useState('')
   const [scannerSuffix, setScannerSuffix] = useState('\t')
   const [scannerMode, setScannerMode] = useState<'keyboard' | 'serial'>('keyboard')
@@ -478,6 +479,7 @@ export function PosPage({
           payments,
           order_discount: discountDec.toString(),
           customer,
+          debt_due_date: hasDebt && debtDueDate ? debtDueDate : null,
           expected_grand_total: grandDec.toString(),
         },
         idem,
@@ -487,7 +489,8 @@ export function PosPage({
       setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
       setActivePayId(null)
       setOrderDiscount('0')
-      showToast('ok', `${t('msg.sale')}: ${res.sale_id}`)
+      setDebtDueDate('')
+      showToast('ok', `${t('msg.sale')}: ${res.public_sale_no || res.sale_id}`)
       setTimeout(() => setCompleting(false), 400)
       if (autoPrintOnSale) void tryPrint(res.sale_id as string)
     } catch (e: unknown) {
@@ -689,7 +692,6 @@ export function PosPage({
             }`}
             placeholder={t('scan.placeholder')}
             autoComplete="off"
-            onBlur={() => safeRefocus()}
           />
           <p className="text-xs text-slate-500">{t('scan.hint')}</p>
 
@@ -963,6 +965,12 @@ export function PosPage({
                 value={customerPhone}
                 onChange={(e) => setCustomer(customerName, e.target.value)}
               />
+              <input
+                type="date"
+                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm"
+                value={debtDueDate}
+                onChange={(e) => setDebtDueDate(e.target.value)}
+              />
             </div>
           )}
 
@@ -982,7 +990,7 @@ export function PosPage({
         </aside>
       </main>
       {numpadCtx && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 pt-10">
           <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
             <h3 className="text-lg font-semibold mb-1">
               {numpadCtx.kind === 'discount' ? t('pos.numpadDiscountTitle') : t('pos.numpadTitle')}
@@ -1013,7 +1021,7 @@ export function PosPage({
       )}
 
       {selectedLine && (
-        <div className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-30 bg-black/60 flex items-start justify-center p-4 pt-10">
           <div className="w-full max-w-lg rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
             <h3 className="text-lg font-semibold">{selectedLine.name}</h3>
             <div className="grid grid-cols-2 gap-2 text-sm">
@@ -1074,7 +1082,7 @@ export function PosPage({
       )}
       {stockMatrix && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-10"
           role="dialog"
           aria-modal
           aria-labelledby="stock-matrix-title"

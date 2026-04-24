@@ -26,6 +26,17 @@ def _q(d: Decimal) -> Decimal:
     return d.quantize(QUANT, rounding=ROUND_HALF_UP)
 
 
+def _next_public_sale_no() -> str:
+    last = Sale.objects.select_for_update().order_by("-completed_at", "-id").first()
+    if not last or not (last.public_sale_no or "").startswith("S-"):
+        return "S-000001"
+    try:
+        seq = int(last.public_sale_no.split("-", 1)[1]) + 1
+    except Exception:
+        seq = 1
+    return f"S-{seq:06d}"
+
+
 def complete_sale(
     *,
     idempotency_key: str,
@@ -35,6 +46,7 @@ def complete_sale(
     customer: dict[str, Any] | None,
     order_discount: Decimal | None = None,
     expected_grand_total: Decimal | None = None,
+    debt_due_date=None,
     note: str = "",
 ) -> Sale:
     if not idempotency_key or len(idempotency_key) > 64:
@@ -62,6 +74,7 @@ def complete_sale(
                     customer=customer,
                     order_discount=order_discount,
                     expected_grand_total=expected_grand_total,
+                    debt_due_date=debt_due_date,
                     note=note,
                 )
                 return sale
@@ -84,6 +97,7 @@ def _complete_sale_inner(
     customer: dict[str, Any] | None,
     order_discount: Decimal | None,
     expected_grand_total: Decimal | None,
+    debt_due_date,
     note: str,
 ) -> Sale:
     parsed_lines: list[dict[str, Any]] = []
@@ -157,6 +171,7 @@ def _complete_sale_inner(
         cust = _resolve_customer(customer)
 
     sale = Sale.objects.create(
+        public_sale_no=_next_public_sale_no(),
         idempotency_key=idempotency_key,
         cashier=cashier,
         subtotal=_q(subtotal),
@@ -202,7 +217,7 @@ def _complete_sale_inner(
             total_amount=_q(debt_amount),
             paid_amount=Decimal("0"),
             remaining_amount=_q(debt_amount),
-            due_date=None,
+            due_date=debt_due_date,
             status=Debt.Status.OPEN,
         )
 

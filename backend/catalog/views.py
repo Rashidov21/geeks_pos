@@ -195,9 +195,18 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
-    def perform_destroy(self, instance):
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        hard = request.query_params.get("hard") == "1"
+        has_refs = instance.variants.filter(
+            Q(sale_lines__isnull=False) | Q(movements__isnull=False) | Q(stocktake_lines__isnull=False)
+        ).exists()
+        if hard and not has_refs:
+            instance.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted_at"])
+        return Response({"code": "SOFT_DELETED_REFERENCED" if has_refs else "SOFT_DELETED"}, status=200)
 
 
 class ProductVariantDetail(generics.RetrieveUpdateDestroyAPIView):
@@ -205,9 +214,20 @@ class ProductVariantDetail(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductVariantSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
-    def perform_destroy(self, instance):
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        hard = request.query_params.get("hard") == "1"
+        has_refs = (
+            instance.sale_lines.exists()
+            or instance.movements.exists()
+            or instance.stocktake_lines.exists()
+        )
+        if hard and not has_refs:
+            instance.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted_at"])
+        return Response({"code": "SOFT_DELETED_REFERENCED" if has_refs else "SOFT_DELETED"}, status=200)
 
 
 class PosVariantPriceView(APIView):

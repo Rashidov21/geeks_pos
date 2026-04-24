@@ -125,7 +125,14 @@ export async function updatePosVariantPrice(variantId: string, listPrice: string
   return j as PosVariant
 }
 
-export async function completeSale(body: object, idempotencyKey: string) {
+export type CompleteSaleResponse = {
+  sale_id: string
+  public_sale_no?: string
+  grand_total: string
+  receipt?: unknown
+}
+
+export async function completeSale(body: object, idempotencyKey: string): Promise<CompleteSaleResponse> {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   const r = await fetch(`${API}/api/sales/complete/`, {
     method: 'POST',
@@ -141,7 +148,7 @@ export async function completeSale(body: object, idempotencyKey: string) {
   if (!r.ok) {
     throw new AppError(j.code || 'SALE_FAILED', j.detail)
   }
-  return j
+  return j as CompleteSaleResponse
 }
 
 export async function fetchReceiptEscpos(saleId: string): Promise<string | null> {
@@ -417,11 +424,27 @@ export async function updateVariant(
   return j as Variant
 }
 
+export async function deleteVariant(id: string, hard = true) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const suffix = hard ? '?hard=1' : ''
+  const r = await fetch(`${API}/api/catalog/variants/${id}/${suffix}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  if (r.status === 204) return { code: 'HARD_DELETED' }
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new AppError(j.code || 'DELETE_VARIANT_FAILED', j.detail)
+  return j as { code?: string }
+}
+
 export type DebtRow = {
   id: string
   customer: string
   customer_name: string
   customer_phone: string
+  status: 'OPEN' | 'PAID' | 'VOIDED'
+  due_date?: string | null
   remaining_amount: string
   total_amount: string
   paid_amount: string
@@ -449,6 +472,7 @@ export async function repayDebt(customerId: string, amount: string): Promise<Deb
 
 export type SaleHistoryRow = {
   id: string
+  public_sale_no?: string
   status: string
   cashier_username: string
   completed_at: string
@@ -503,18 +527,18 @@ export async function fetchDashboardSummary(params?: { from?: string; to?: strin
   return (await r.json()) as DashboardSummary
 }
 
-export async function exportSalesCsv(params?: { from?: string; to?: string }) {
+export async function exportSalesXlsx(params?: { from?: string; to?: string }) {
   const q = new URLSearchParams()
   if (params?.from) q.set('from', params.from)
   if (params?.to) q.set('to', params.to)
   const qs = q.toString() ? `?${q.toString()}` : ''
-  const r = await fetch(`${API}/api/sales/export/csv/${qs}`, { credentials: 'include' })
-  if (!r.ok) throw new Error('EXPORT_SALES_FAILED')
+  const r = await fetch(`${API}/api/sales/export/xlsx/${qs}`, { credentials: 'include' })
+  if (!r.ok) throw new Error('EXPORT_SALES_XLSX_FAILED')
   const blob = await r.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'sales_history.csv'
+  a.download = 'sales_history.xlsx'
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -566,9 +590,12 @@ export type HardwareConfig = Pick<
 export type IntegrationSettings = {
   telegram_bot_token: string
   telegram_chat_id: string
+  whatsapp_provider: 'GREEN_API' | 'CUSTOM'
   whatsapp_api_base: string
   whatsapp_api_token: string
   whatsapp_sender: string
+  greenapi_instance_id: string
+  greenapi_api_token_instance: string
   updated_at?: string
 }
 

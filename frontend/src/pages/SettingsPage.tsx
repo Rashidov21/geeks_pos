@@ -8,7 +8,7 @@ import {
 } from '../api'
 import { useTranslation } from 'react-i18next'
 import { labelPrinterStatus, receiptPrinterStatus } from '../utils/hardwareStatus'
-import { printEscposBase64 } from '../utils/tauriPrint'
+import { printRawBase64 } from '../utils/tauriPrint'
 import { ActionToast } from '../components/ActionToast'
 
 export function SettingsPage({
@@ -90,9 +90,12 @@ export function SettingsPage({
   const [integrationForm, setIntegrationForm] = useState<IntegrationSettings>({
     telegram_bot_token: integrations?.telegram_bot_token ?? '',
     telegram_chat_id: integrations?.telegram_chat_id ?? '',
+    whatsapp_provider: integrations?.whatsapp_provider ?? 'GREEN_API',
     whatsapp_api_base: integrations?.whatsapp_api_base ?? '',
     whatsapp_api_token: integrations?.whatsapp_api_token ?? '',
     whatsapp_sender: integrations?.whatsapp_sender ?? '',
+    greenapi_instance_id: integrations?.greenapi_instance_id ?? '',
+    greenapi_api_token_instance: integrations?.greenapi_api_token_instance ?? '',
   })
 
   useEffect(() => {
@@ -130,9 +133,12 @@ export function SettingsPage({
     setIntegrationForm({
       telegram_bot_token: integrations?.telegram_bot_token ?? '',
       telegram_chat_id: integrations?.telegram_chat_id ?? '',
+      whatsapp_provider: integrations?.whatsapp_provider ?? 'GREEN_API',
       whatsapp_api_base: integrations?.whatsapp_api_base ?? '',
       whatsapp_api_token: integrations?.whatsapp_api_token ?? '',
       whatsapp_sender: integrations?.whatsapp_sender ?? '',
+      greenapi_instance_id: integrations?.greenapi_instance_id ?? '',
+      greenapi_api_token_instance: integrations?.greenapi_api_token_instance ?? '',
     })
   }, [integrations])
 
@@ -314,7 +320,7 @@ export function SettingsPage({
                     onClick={async () => {
                       try {
                         const out = await testReceiptPrintPayload()
-                        await printEscposBase64(out.raw_base64, form.receipt_printer_name || null)
+                        await printRawBase64(out.raw_base64, form.receipt_printer_name || null)
                         setActionToast({ kind: 'ok', message: t('admin.settings.testReceiptOk') })
                       } catch (e: unknown) {
                         const code = (e as Error & { code?: string }).code
@@ -383,7 +389,7 @@ export function SettingsPage({
                     onClick={async () => {
                       try {
                         const out = await testLabelPrintPayload()
-                        await printEscposBase64(out.raw_base64, form.label_printer_name || null)
+                        await printRawBase64(out.raw_base64, form.label_printer_name || null)
                         setActionToast({ kind: 'ok', message: t('admin.settings.testLabelOk') })
                       } catch (e: unknown) {
                         const code = (e as Error & { code?: string }).code
@@ -529,6 +535,40 @@ export function SettingsPage({
               placeholder={t('admin.bots.whatsappApiBase')}
             />
             <p className="text-xs text-slate-500">{t('admin.bots.whatsappApiBaseHelp')}</p>
+            <label className="block text-xs text-slate-400">{t('admin.bots.whatsappProvider')}</label>
+            <select
+              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              value={integrationForm.whatsapp_provider}
+              onChange={(e) =>
+                setIntegrationForm((p) => ({
+                  ...p,
+                  whatsapp_provider: e.target.value as 'GREEN_API' | 'CUSTOM',
+                }))
+              }
+            >
+              <option value="GREEN_API">GreenAPI</option>
+              <option value="CUSTOM">Custom API</option>
+            </select>
+            {integrationForm.whatsapp_provider === 'GREEN_API' && (
+              <>
+                <label className="block text-xs text-slate-400">{t('admin.bots.greenApiInstanceId')}</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+                  value={integrationForm.greenapi_instance_id}
+                  onChange={(e) => setIntegrationForm((p) => ({ ...p, greenapi_instance_id: e.target.value }))}
+                  placeholder={t('admin.bots.greenApiInstanceId')}
+                />
+                <label className="block text-xs text-slate-400">{t('admin.bots.greenApiTokenInstance')}</label>
+                <input
+                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+                  value={integrationForm.greenapi_api_token_instance}
+                  onChange={(e) =>
+                    setIntegrationForm((p) => ({ ...p, greenapi_api_token_instance: e.target.value }))
+                  }
+                  placeholder={t('admin.bots.greenApiTokenInstance')}
+                />
+              </>
+            )}
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappToken')}</label>
             <input
               className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"

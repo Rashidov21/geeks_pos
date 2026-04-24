@@ -115,6 +115,7 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
             "label_printer_type": settings.label_printer_type,
         },
         "sale_id": str(sale.id),
+        "public_sale_no": sale.public_sale_no or str(sale.id)[:8],
         "completed_at": sale.completed_at.isoformat(),
         "cashier": sale.cashier.username,
         "lines": lines_out,
@@ -148,7 +149,7 @@ def receipt_plain_text(receipt: dict) -> str:
     if store.get("phone"):
         buf.append(f"{labels['tel']}: {t(store['phone'])}")
     width = 42 if store.get("receipt_width") == "80mm" else 32
-    buf.append(_line_80mm(labels["sale"], receipt["sale_id"][:8], width=width))
+    buf.append(_line_80mm(labels["sale"], str(receipt.get("public_sale_no") or receipt["sale_id"][:8]), width=width))
     buf.append(_line_80mm(labels["time"], receipt["completed_at"][:19], width=width))
     buf.append(_line_80mm(labels["cashier"], t(receipt["cashier"]), width=width))
     buf.append("-" * width)
@@ -260,7 +261,7 @@ def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> byte
         p.text(f"{price}\n")
         p.set(align="center")
         # Avoid python-escpos profile warning on Dummy() printers where media.width.pixel is unset.
-        p.barcode(variant.barcode or "", "CODE39", height=64, width=2, pos="BELOW", check=False)
+        p.barcode(variant.barcode or "", "CODE39", height=64, width=2, pos="BELOW", check=False, align_ct=False)
         p.text("\n")
     try:
         p.cut(mode="PART")

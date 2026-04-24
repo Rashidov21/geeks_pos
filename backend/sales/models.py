@@ -10,6 +10,7 @@ class Sale(models.Model):
         VOIDED = "VOIDED", "Voided"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    public_sale_no = models.CharField(max_length=32, unique=True, db_index=True, blank=True, default="")
     idempotency_key = models.CharField(max_length=64, unique=True)
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.COMPLETED

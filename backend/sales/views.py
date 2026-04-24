@@ -7,6 +7,8 @@ from django.http import HttpResponse
 from django.db.models import Q
 from django.utils import timezone
 import csv
+from io import BytesIO
+from openpyxl import Workbook
 
 from core.exceptions import (
     DebtPolicyError,
@@ -66,6 +68,7 @@ class CompleteSaleView(APIView):
                 customer=data.get("customer"),
                 order_discount=data.get("order_discount"),
                 expected_grand_total=data.get("expected_grand_total"),
+                debt_due_date=data.get("debt_due_date"),
                 note=data.get("note") or "",
             )
         except InsufficientStock as e:
@@ -82,6 +85,7 @@ class CompleteSaleView(APIView):
         return Response(
             {
                 "sale_id": str(sale.id),
+                "public_sale_no": sale.public_sale_no,
                 "grand_total": str(sale.grand_total),
                 "receipt": sale_to_receipt_dict(sale, lang=_request_lang(request)),
             }
@@ -105,6 +109,7 @@ class SaleDetailView(APIView):
         return Response(
             {
                 "sale_id": str(sale.id),
+                "public_sale_no": sale.public_sale_no,
                 "receipt": sale_to_receipt_dict(sale, lang=_request_lang(request)),
             }
         )
@@ -136,6 +141,7 @@ class SaleHistoryView(generics.ListAPIView):
         if query:
             qs = qs.filter(
                 Q(id__icontains=query)
+                | Q(public_sale_no__icontains=query)
                 | Q(cashier__username__icontains=query)
                 | Q(status__icontains=query)
             )
@@ -160,6 +166,7 @@ class SaleHistoryExportCsvView(APIView):
         writer.writerow(
             [
                 "sale_id",
+                "public_sale_no",
                 "status",
                 "cashier",
                 "completed_at",
@@ -172,6 +179,7 @@ class SaleHistoryExportCsvView(APIView):
             writer.writerow(
                 [
                     str(s.id),
+                    s.public_sale_no,
                     s.status,
                     s.cashier.username,
                     s.completed_at.isoformat(),
@@ -180,6 +188,57 @@ class SaleHistoryExportCsvView(APIView):
                     s.grand_total,
                 ]
             )
+        return resp
+
+
+class SaleHistoryExportXlsxView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+
+    def get(self, request):
+        from_date = request.query_params.get("from")
+        to_date = request.query_params.get("to")
+        qs = Sale.objects.select_related("cashier").all()
+        if from_date:
+            qs = qs.filter(completed_at__date__gte=from_date)
+        if to_date:
+            qs = qs.filter(completed_at__date__lte=to_date)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sales"
+        ws.append(
+            [
+                "sale_id",
+                "public_sale_no",
+                "status",
+                "cashier",
+                "completed_at",
+                "subtotal",
+                "discount_total",
+                "grand_total",
+            ]
+        )
+        for s in qs:
+            ws.append(
+                [
+                    str(s.id),
+                    s.public_sale_no,
+                    s.status,
+                    s.cashier.username,
+                    s.completed_at.isoformat(),
+                    float(s.subtotal),
+                    float(s.discount_total),
+                    float(s.grand_total),
+                ]
+            )
+        out = BytesIO()
+        wb.save(out)
+        out.seek(0)
+        resp = HttpResponse(
+            out.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp["Content-Disposition"] = 'attachment; filename="sales_history.xlsx"'
         return resp
 
 

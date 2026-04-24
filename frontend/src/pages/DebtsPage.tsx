@@ -37,6 +37,8 @@ export function DebtsPage({
             <tr>
               <th className="text-left p-2">{t('admin.debts.customer')}</th>
               <th className="text-left p-2">{t('admin.debts.phone')}</th>
+              <th className="text-left p-2">{t('admin.debts.createdAt')}</th>
+              <th className="text-left p-2">{t('admin.debts.dueDate')}</th>
               <th className="text-right p-2">{t('admin.debts.openCount')}</th>
               <th className="text-right p-2">{t('admin.debts.totalRemaining')}</th>
               <th className="text-right p-2">{t('admin.debts.repay')}</th>
@@ -52,6 +54,17 @@ export function DebtsPage({
                 <tr key={customerId} className="border-t border-slate-800">
                   <td className="p-2">{row.customer_name}</td>
                   <td className="p-2">{row.customer_phone}</td>
+                  <td className="p-2">{new Date(row.created_at).toLocaleDateString()}</td>
+                  <td className="p-2">
+                    {row.due_date ? (
+                      <span className={new Date(row.due_date) < new Date() ? 'text-amber-300' : ''}>
+                        {new Date(row.due_date).toLocaleDateString()}
+                        {new Date(row.due_date) < new Date() ? ` (${t('admin.debts.overdue')})` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">{t('admin.debts.noDueDate')}</span>
+                    )}
+                  </td>
                   <td className="p-2 text-right">{count}</td>
                   <td className="p-2 text-right">{formatMoney(total.toFixed(0))}</td>
                   <td className="p-2 text-right">
@@ -111,7 +124,7 @@ export function DebtsPage({
             })}
             {debts.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-slate-500">
+                <td colSpan={8} className="p-6 text-center text-slate-500">
                   {t('admin.debts.empty')}
                 </td>
               </tr>

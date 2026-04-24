@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { printEscposBase64 } from './utils/tauriPrint'
+import { printRawBase64 } from './utils/tauriPrint'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -11,7 +11,8 @@ import {
   createSize,
   createStocktakeSession,
   createVariantBulkGrid,
-  exportSalesCsv,
+  deleteVariant,
+  exportSalesXlsx,
   fetchCategories,
   fetchColors,
   fetchMe,
@@ -177,13 +178,18 @@ export default function App() {
               byVariant.has(v.id) ? { ...v, stock_qty: byVariant.get(v.id) ?? v.stock_qty } : v,
             ),
           }))
+          // Debt sales are created from POS; keep admin debts list in sync without manual refresh.
+          if (isManager && events.some((e) => e.type === 'SALE' || e.type === 'RETURN')) {
+            const nextDebts = await fetchOpenDebts()
+            setDebts(nextDebts)
+          }
         } catch {
           // ignore stock sync errors
         }
       })()
     }, 5000)
     return () => window.clearInterval(id)
-  }, [authed, lastStockSyncAt])
+  }, [authed, isManager, lastStockSyncAt])
 
   if (booting) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
   if (authed && !role) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
@@ -266,15 +272,15 @@ export default function App() {
                   await refreshAdminData()
                 }}
                 onPrintSticker={async (variantId, copies, size) => {
-                  const { escpos_base64 } = await fetchLabelEscpos(variantId, size, copies)
+                  const { raw_base64, escpos_base64 } = await fetchLabelEscpos(variantId, size, copies)
                   const labelPrinter = (settings?.label_printer_name || '').trim()
-                  await printEscposBase64(escpos_base64, labelPrinter || null)
+                  await printRawBase64(raw_base64 || escpos_base64, labelPrinter || null)
                 }}
                 onPrintStickerQueue={async (items, size) => {
                   const out = await fetchLabelQueueEscpos(items, size)
                   const labelPrinter = (settings?.label_printer_name || '').trim()
                   for (const row of out.items) {
-                    await printEscposBase64(row.escpos_base64, labelPrinter || null)
+                    await printRawBase64(row.raw_base64 || row.escpos_base64, labelPrinter || null)
                   }
                 }}
                 onToggleVariant={async (v) => {
@@ -283,6 +289,10 @@ export default function App() {
                 }}
                 onUpdateVariant={async (v, patch) => {
                   await updateVariant(v.id, patch)
+                  await refreshAdminData()
+                }}
+                onDeleteVariant={async (variantId) => {
+                  await deleteVariant(variantId, true)
                   await refreshAdminData()
                 }}
                 onRepay={async (customerId, amount) => {
@@ -302,7 +312,7 @@ export default function App() {
                 onCatalogPage={(page) => setCatalogFilter((p) => ({ ...p, page }))}
                 salesPage={salesFilter.page}
                 onExportSales={async () => {
-                  await exportSalesCsv({ from: salesFilter.from, to: salesFilter.to })
+                  await exportSalesXlsx({ from: salesFilter.from, to: salesFilter.to })
                 }}
                 onVoidSale={async (saleId, reason) => {
                   await voidSale(saleId, reason)
@@ -312,7 +322,7 @@ export default function App() {
                   const b64 = await fetchReceiptEscpos(saleId)
                   const printerName = (settings?.receipt_printer_name || '').trim()
                   if (b64) {
-                    await printEscposBase64(b64, printerName || null)
+                    await printRawBase64(b64, printerName || null)
                     return
                   }
                   const plain = await fetchReceiptPlain(saleId)
@@ -393,6 +403,7 @@ function AdminPanel(props: {
     v: Variant,
     patch: { purchase_price: string; list_price: string },
   ) => Promise<void>
+  onDeleteVariant: (variantId: string) => Promise<void>
   onRepay: (customerId: string, amount: string) => Promise<void>
   onSendDebtReminder: (customerId: string, amount: string) => Promise<void>
   onSaveSettings: (data: {
@@ -489,6 +500,7 @@ function AdminPanel(props: {
                 onPrintStickerQueue={props.onPrintStickerQueue}
                 onToggleVariant={props.onToggleVariant}
                 onUpdateVariant={props.onUpdateVariant}
+                onDeleteVariant={props.onDeleteVariant}
                 onFilter={props.onCatalogFilter}
                 onPage={props.onCatalogPage}
               />

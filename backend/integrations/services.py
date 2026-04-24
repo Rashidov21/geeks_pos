@@ -39,7 +39,7 @@ def _build_z_report_text(*, metrics: dict, lang: str) -> str:
         return (
             f"Z-Report {metrics['date']}\n"
             f"Всего продаж: {metrics['sales_count']}\n"
-            f"Сумма продаж: {_fmt_money(metrics['sales_total'])}\n"
+            f"Сумма продаж: {_fmt_money(metrics['sales_amount'])}\n"
             f"Наличные: {_fmt_money(metrics['cash_total'])}\n"
             f"Карта: {_fmt_money(metrics['card_total'])}\n"
             f"Долг: {_fmt_money(metrics['debt_total'])}\n"
@@ -50,7 +50,7 @@ def _build_z_report_text(*, metrics: dict, lang: str) -> str:
     return (
         f"Z-Report {metrics['date']}\n"
         f"Jami savdo: {metrics['sales_count']}\n"
-        f"Savdo summasi: {_fmt_money(metrics['sales_total'])}\n"
+        f"Savdo summasi: {_fmt_money(metrics['sales_amount'])}\n"
         f"Naqd: {_fmt_money(metrics['cash_total'])}\n"
         f"Karta: {_fmt_money(metrics['card_total'])}\n"
         f"Nasiya: {_fmt_money(metrics['debt_total'])}\n"
@@ -65,6 +65,13 @@ def _telegram_ready(settings: IntegrationSettings) -> bool:
 
 
 def _whatsapp_ready(settings: IntegrationSettings) -> bool:
+    if settings.whatsapp_provider == IntegrationSettings.WhatsAppProvider.GREEN_API:
+        return bool(
+            settings.whatsapp_api_base
+            and settings.greenapi_instance_id
+            and settings.greenapi_api_token_instance
+            and settings.whatsapp_sender
+        )
     return bool(settings.whatsapp_api_base and settings.whatsapp_api_token and settings.whatsapp_sender)
 
 
@@ -83,12 +90,21 @@ def _send_telegram_text(*, settings: IntegrationSettings, text: str):
 def _send_whatsapp_text(*, settings: IntegrationSettings, text: str):
     if not _whatsapp_ready(settings):
         raise ValueError("WhatsApp settings are incomplete")
-    payload = {"to": settings.whatsapp_sender, "message": text, "sender": settings.whatsapp_sender}
-    ok, details = _post_json(
-        settings.whatsapp_api_base.rstrip("/") + "/messages/send",
-        payload,
-        headers={"Authorization": f"Bearer {settings.whatsapp_api_token}"},
-    )
+    if settings.whatsapp_provider == IntegrationSettings.WhatsAppProvider.GREEN_API:
+        chat_id = settings.whatsapp_sender if "@c.us" in settings.whatsapp_sender else f"{settings.whatsapp_sender}@c.us"
+        payload = {"chatId": chat_id, "message": text}
+        url = (
+            settings.whatsapp_api_base.rstrip("/")
+            + f"/waInstance{settings.greenapi_instance_id}/sendMessage/{settings.greenapi_api_token_instance}"
+        )
+        ok, details = _post_json(url, payload)
+    else:
+        payload = {"to": settings.whatsapp_sender, "message": text, "sender": settings.whatsapp_sender}
+        ok, details = _post_json(
+            settings.whatsapp_api_base.rstrip("/") + "/messages/send",
+            payload,
+            headers={"Authorization": f"Bearer {settings.whatsapp_api_token}"},
+        )
     if not ok:
         raise ValueError(f"WhatsApp send failed: {details}")
     return details
@@ -130,15 +146,28 @@ def send_z_report_multichannel(*, lang: str = "uz"):
 
 def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
     settings = IntegrationSettings.get_solo()
-    if not settings.whatsapp_api_base or not settings.whatsapp_api_token:
+    if not settings.whatsapp_api_base:
         raise ValueError("WhatsApp settings are incomplete")
     message = f"Assalomu alaykum {customer_name}, qarzingiz: {amount}. Iltimos to'lovni amalga oshiring."
-    payload = {"to": phone, "message": message, "sender": settings.whatsapp_sender}
-    ok, details = _post_json(
-        settings.whatsapp_api_base.rstrip("/") + "/messages/send",
-        payload,
-        headers={"Authorization": f"Bearer {settings.whatsapp_api_token}"},
-    )
+    if settings.whatsapp_provider == IntegrationSettings.WhatsAppProvider.GREEN_API:
+        if not settings.greenapi_instance_id or not settings.greenapi_api_token_instance:
+            raise ValueError("GreenAPI settings are incomplete")
+        chat_id = phone if "@c.us" in phone else f"{phone}@c.us"
+        payload = {"chatId": chat_id, "message": message}
+        url = (
+            settings.whatsapp_api_base.rstrip("/")
+            + f"/waInstance{settings.greenapi_instance_id}/sendMessage/{settings.greenapi_api_token_instance}"
+        )
+        ok, details = _post_json(url, payload)
+    else:
+        if not settings.whatsapp_api_token:
+            raise ValueError("WhatsApp settings are incomplete")
+        payload = {"to": phone, "message": message, "sender": settings.whatsapp_sender}
+        ok, details = _post_json(
+            settings.whatsapp_api_base.rstrip("/") + "/messages/send",
+            payload,
+            headers={"Authorization": f"Bearer {settings.whatsapp_api_token}"},
+        )
     if not ok:
         raise ValueError(f"WhatsApp send failed: {details}")
     return {"ok": True, "details": details}

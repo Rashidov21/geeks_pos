@@ -38,6 +38,7 @@ class CompleteSaleSerializer(serializers.Serializer):
         max_digits=12, decimal_places=2, required=False
     )
     customer = CustomerInSerializer(required=False, allow_null=True)
+    debt_due_date = serializers.DateField(required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True, default="")
 
 
@@ -48,6 +49,7 @@ class SaleHistorySerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             "id",
+            "public_sale_no",
             "status",
             "cashier_username",
             "completed_at",

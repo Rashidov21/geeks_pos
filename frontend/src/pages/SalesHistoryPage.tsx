@@ -98,7 +98,7 @@ export function SalesHistoryPage({
           <tbody>
             {sales.map((s) => (
               <tr key={s.id} className="border-t border-slate-800">
-                <td className="p-2">{s.id.slice(0, 8)}</td>
+                <td className="p-2">{s.public_sale_no || s.id.slice(0, 8)}</td>
                 <td className="p-2">{s.cashier_username}</td>
                 <td className="p-2">{new Date(s.completed_at).toLocaleString()}</td>
                 <td className="p-2">{t(`status.${s.status}`, { defaultValue: s.status })}</td>
