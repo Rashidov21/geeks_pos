@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "sync",
     "reports",
     "integrations",
+    "licensing.apps.LicensingConfig",
 ]
 
 MIDDLEWARE = [
@@ -44,6 +45,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "licensing.middleware.LicenseEnforcementMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -105,6 +107,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://tauri.localhost",
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+# License / Owner Dashboard (set in production)
+LICENSE_CHECK_URL = os.environ.get("LICENSE_CHECK_URL", "").strip()
+LICENSE_ENFORCEMENT = os.environ.get("LICENSE_ENFORCEMENT", "0" if DEBUG else "1") == "1"
+LICENSE_OFFLINE_GRACE_HOURS = int(os.environ.get("LICENSE_OFFLINE_GRACE_HOURS", "72"))
+INTERNAL_FLUSH_KEY = os.environ.get("INTERNAL_FLUSH_KEY", "").strip()
+if DEBUG and not INTERNAL_FLUSH_KEY:
+    INTERNAL_FLUSH_KEY = "dev-internal-flush-key"
 
 CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",

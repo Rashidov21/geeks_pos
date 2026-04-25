@@ -227,6 +227,37 @@ export async function fetchMe(): Promise<MeResponse> {
   }
 }
 
+export type LicenseStatus = {
+  enforcement: boolean
+  valid: boolean
+  license_key_masked: string
+  expires_at: string | null
+  last_check_ok: boolean
+  last_check_message: string
+  hardware_id_set?: boolean
+}
+
+export async function fetchLicenseStatus(): Promise<LicenseStatus> {
+  const r = await fetch(`${API}/api/licensing/status/`, { credentials: 'include' })
+  if (!r.ok) throw await parseErrorResponse(r, 'LICENSE_STATUS_FAILED')
+  return (await r.json()) as LicenseStatus
+}
+
+export async function activateLicense(hardware_id: string, license_key: string): Promise<LicenseStatus> {
+  const csrf = await fetchCsrf()
+  const r = await fetch(`${API}/api/licensing/activate/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrf,
+    },
+    body: JSON.stringify({ hardware_id, license_key }),
+  })
+  if (!r.ok) throw await parseErrorResponse(r, 'LICENSE_ACTIVATE_FAILED')
+  return (await r.json()) as LicenseStatus
+}
+
 export type Category = { id: string; name_uz: string; name_ru: string }
 export type Product = {
   id: string

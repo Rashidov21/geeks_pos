@@ -11,4 +11,5 @@ urlpatterns = [
     path("sync/", include("sync.urls")),
     path("reports/", include("reports.urls")),
     path("integrations/", include("integrations.urls")),
+    path("licensing/", include("licensing.urls")),
 ]

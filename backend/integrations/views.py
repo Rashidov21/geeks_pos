@@ -1,4 +1,8 @@
-from rest_framework.permissions import IsAuthenticated
+from django.conf import settings
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -74,4 +78,38 @@ class WhatsAppDebtReminderView(APIView):
             return Response(out)
         except ValueError as e:
             return Response({"code": "WHATSAPP_SEND_FAILED", "detail": str(e)}, status=400)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class NotificationQueueFlushView(APIView):
+    """Flush pending outbound notifications (Tauri internal key or authenticated owner)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = [SessionAuthentication]
+
+    def post(self, request):
+        from .notification_queue import flush_pending
+
+        internal_key = (getattr(settings, "INTERNAL_FLUSH_KEY", None) or "").strip()
+        header = (request.headers.get("X-Internal-Key") or "").strip()
+        remote = request.META.get("REMOTE_ADDR") or ""
+        localhost = remote in ("127.0.0.1", "::1")
+        try:
+            limit = int(request.data.get("limit", 50))  # type: ignore[attr-defined]
+        except (TypeError, ValueError):
+            limit = 50
+
+        if internal_key and header == internal_key:
+            if not localhost:
+                return Response(
+                    {"code": "FORBIDDEN", "detail": "Internal flush is only allowed from localhost."},
+                    status=403,
+                )
+            return Response(flush_pending(limit=limit))
+
+        if not request.user.is_authenticated:
+            return Response({"detail": "Authentication credentials were not provided."}, status=401)
+        if not IsAdminOrOwner().has_permission(request, self):
+            return Response({"detail": "You do not have permission to perform this action."}, status=403)
+        return Response(flush_pending(limit=limit))
 

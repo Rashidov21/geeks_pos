@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+from typing import Any
+
+from django.db import transaction
+from django.utils import timezone
+
+from .models import IntegrationSettings, NotificationQueue
+
+MAX_ATTEMPTS = 10
+
+
+def enqueue(kind: str, payload: dict[str, Any]) -> NotificationQueue:
+    return NotificationQueue.objects.create(
+        kind=kind,
+        payload=payload,
+        status=NotificationQueue.Status.PENDING,
+    )
+
+
+def flush_pending(*, limit: int = 50) -> dict[str, Any]:
+    """Send pending notifications; return counts."""
+    sent = 0
+    failed = 0
+    skipped = 0
+
+    for _ in range(limit):
+        with transaction.atomic():
+            row = (
+                NotificationQueue.objects.select_for_update()
+                .filter(status=NotificationQueue.Status.PENDING)
+                .order_by("created_at")
+                .first()
+            )
+            if row is None:
+                break
+            row.attempts += 1
+            if row.attempts > MAX_ATTEMPTS:
+                row.status = NotificationQueue.Status.FAILED
+                row.last_error = "max attempts exceeded"
+                row.save(update_fields=["attempts", "status", "last_error"])
+                failed += 1
+                continue
+            row.save(update_fields=["attempts"])
+
+        from .services import (
+            _send_telegram_text,
+            _send_whatsapp_debt_reminder_now,
+            _send_whatsapp_text,
+        )
+
+        settings = IntegrationSettings.get_solo()
+        try:
+            if row.kind == NotificationQueue.Kind.Z_REPORT_TELEGRAM:
+                text = str(row.payload.get("text") or "")
+                _send_telegram_text(settings=settings, text=text)
+            elif row.kind == NotificationQueue.Kind.Z_REPORT_WHATSAPP:
+                text = str(row.payload.get("text") or "")
+                _send_whatsapp_text(settings=settings, text=text)
+            elif row.kind == NotificationQueue.Kind.WHATSAPP_DEBT_REMINDER:
+                _send_whatsapp_debt_reminder_now(
+                    settings=settings,
+                    phone=str(row.payload.get("phone") or ""),
+                    customer_name=str(row.payload.get("customer_name") or ""),
+                    amount=str(row.payload.get("amount") or "0"),
+                )
+            else:
+                raise ValueError(f"Unknown queue kind: {row.kind}")
+        except ValueError as e:
+            row.status = NotificationQueue.Status.PENDING
+            row.last_error = str(e)[:500]
+            row.save(update_fields=["status", "last_error"])
+            skipped += 1
+            continue
+
+        row.status = NotificationQueue.Status.SENT
+        row.sent_at = timezone.now()
+        row.last_error = ""
+        row.save(update_fields=["status", "sent_at", "last_error"])
+        sent += 1
+
+    return {"sent": sent, "failed": failed, "skipped": skipped, "processed_cap": limit}

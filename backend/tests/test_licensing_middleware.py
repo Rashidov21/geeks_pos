@@ -1,0 +1,106 @@
+import pytest
+from django.test import override_settings
+
+from licensing.services import apply_activation_success
+
+
+def _mk_user(username: str, role: str):
+    from django.contrib.auth.models import User
+
+    u = User.objects.create_user(username=username, password="pass12345")
+    u.profile.role = role
+    u.profile.save(update_fields=["role"])
+    return u
+
+
+@pytest.mark.django_db
+def test_health_always_allowed_under_license_enforcement(client):
+    with override_settings(LICENSE_ENFORCEMENT=True):
+        r = client.get("/api/health/")
+    assert r.status_code == 200
+
+
+@pytest.mark.django_db
+def test_sales_complete_blocked_when_license_enforced_and_invalid(client):
+    from catalog.models import Category, Color, Product, ProductVariant, Size
+    from decimal import Decimal
+
+    cashier = _mk_user("cashier_lic", "CASHIER")
+    cat = Category.objects.create(name_uz="K", name_ru="K")
+    sz = Size.objects.create(value="42", label_uz="42", label_ru="42", sort_order=1)
+    col = Color.objects.create(value="B", label_uz="Q", label_ru="Q", sort_order=1)
+    prod = Product.objects.create(category=cat, name_uz="P", name_ru="P")
+    variant = ProductVariant.objects.create(
+        product=prod,
+        size=sz,
+        color=col,
+        purchase_price=Decimal("1"),
+        list_price=Decimal("10"),
+        stock_qty=5,
+    )
+    client.force_login(cashier)
+
+    with override_settings(LICENSE_ENFORCEMENT=True):
+        r = client.post(
+            "/api/sales/complete/",
+            data={
+                "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+                "payments": [{"method": "CASH", "amount": "10"}],
+                "expected_grand_total": "10",
+            },
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="lic-block-1",
+        )
+    assert r.status_code == 403
+    assert r.json().get("code") == "LICENSE_EXPIRED"
+
+
+@pytest.mark.django_db
+def test_sales_complete_allowed_when_license_valid(client):
+    from catalog.models import Category, Color, Product, ProductVariant, Size
+    from decimal import Decimal
+
+    cashier = _mk_user("cashier_lic_ok", "CASHIER")
+    cat = Category.objects.create(name_uz="K2", name_ru="K2")
+    sz = Size.objects.create(value="43", label_uz="43", label_ru="43", sort_order=1)
+    col = Color.objects.create(value="B2", label_uz="Q", label_ru="Q", sort_order=1)
+    prod = Product.objects.create(category=cat, name_uz="P2", name_ru="P2")
+    variant = ProductVariant.objects.create(
+        product=prod,
+        size=sz,
+        color=col,
+        purchase_price=Decimal("1"),
+        list_price=Decimal("10"),
+        stock_qty=5,
+    )
+    apply_activation_success(
+        hardware_id="hw-test-1",
+        license_key="KEY",
+        expires_at_iso="2099-12-31",
+        raw_json="{}",
+    )
+    client.force_login(cashier)
+
+    with override_settings(LICENSE_ENFORCEMENT=True):
+        r = client.post(
+            "/api/sales/complete/",
+            data={
+                "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+                "payments": [{"method": "CASH", "amount": "10"}],
+                "expected_grand_total": "10",
+            },
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="lic-ok-1",
+        )
+    assert r.status_code == 200
+
+
+@pytest.mark.django_db
+def test_licensing_status_authenticated(client):
+    owner = _mk_user("owner_lic_status", "OWNER")
+    client.force_login(owner)
+    r = client.get("/api/licensing/status/")
+    assert r.status_code == 200
+    body = r.json()
+    assert "enforcement" in body
+    assert "valid" in body

@@ -1,11 +1,12 @@
 import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
 from django.utils import timezone
 
 from reports.services import sales_metrics, q_money
 
-from .models import IntegrationSettings
+from .models import IntegrationSettings, NotificationQueue
 
 
 def _post_json(url: str, payload: dict, headers: dict[str, str] | None = None):
@@ -111,43 +112,13 @@ def _send_whatsapp_text(*, settings: IntegrationSettings, text: str):
     return details
 
 
-def send_daily_z_report(*, lang: str = "uz"):
-    today = str(timezone.localdate())
-    return send_z_report_multichannel(lang=lang, from_date=today, to_date=today)
-
-
-def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None, to_date: str | None = None):
-    settings = IntegrationSettings.get_solo()
-    selected_lang = _norm_lang(lang)
-    metrics = sales_metrics(from_date=from_date, to_date=to_date)
-    text = _build_z_report_text(metrics=metrics, lang=selected_lang)
-
-    channel_results: dict[str, dict[str, str | bool]] = {}
-    use_telegram = _telegram_ready(settings)
-    use_whatsapp = _whatsapp_ready(settings)
-    if not use_telegram and not use_whatsapp:
-        raise ValueError("No configured notification channels")
-
-    if use_telegram:
-        try:
-            details = _send_telegram_text(settings=settings, text=text)
-            channel_results["telegram"] = {"ok": True, "details": details}
-        except ValueError as e:
-            channel_results["telegram"] = {"ok": False, "details": str(e)}
-    if use_whatsapp:
-        try:
-            details = _send_whatsapp_text(settings=settings, text=text)
-            channel_results["whatsapp"] = {"ok": True, "details": details}
-        except ValueError as e:
-            channel_results["whatsapp"] = {"ok": False, "details": str(e)}
-
-    ok = any(v.get("ok") for v in channel_results.values())
-    details = "Sent successfully" if ok else "All channels failed"
-    return {"ok": ok, "details": details, "channel_results": channel_results, "lang": selected_lang}
-
-
-def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
-    settings = IntegrationSettings.get_solo()
+def _send_whatsapp_debt_reminder_now(
+    *,
+    settings: IntegrationSettings,
+    phone: str,
+    customer_name: str,
+    amount: str,
+):
     if not settings.whatsapp_api_base:
         raise ValueError("WhatsApp settings are incomplete")
     message = f"Assalomu alaykum {customer_name}, qarzingiz: {amount}. Iltimos to'lovni amalga oshiring."
@@ -172,5 +143,95 @@ def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
         )
     if not ok:
         raise ValueError(f"WhatsApp send failed: {details}")
-    return {"ok": True, "details": details}
+    return details
 
+
+def send_daily_z_report(*, lang: str = "uz"):
+    today = str(timezone.localdate())
+    return send_z_report_multichannel(lang=lang, from_date=today, to_date=today)
+
+
+def _should_queue_after_telegram_error(msg: str) -> bool:
+    return "incomplete" not in msg.lower()
+
+
+def _should_queue_after_whatsapp_error(msg: str) -> bool:
+    return "incomplete" not in msg.lower() and "settings are incomplete" not in msg.lower()
+
+
+def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None, to_date: str | None = None):
+    from .notification_queue import enqueue
+
+    settings = IntegrationSettings.get_solo()
+    selected_lang = _norm_lang(lang)
+    metrics = sales_metrics(from_date=from_date, to_date=to_date)
+    text = _build_z_report_text(metrics=metrics, lang=selected_lang)
+
+    channel_results: dict[str, dict[str, str | bool]] = {}
+    use_telegram = _telegram_ready(settings)
+    use_whatsapp = _whatsapp_ready(settings)
+    if not use_telegram and not use_whatsapp:
+        raise ValueError("No configured notification channels")
+
+    if use_telegram:
+        try:
+            details = _send_telegram_text(settings=settings, text=text)
+            channel_results["telegram"] = {"ok": True, "details": details, "queued": False}
+        except ValueError as e:
+            msg = str(e)
+            if _should_queue_after_telegram_error(msg):
+                enqueue(
+                    NotificationQueue.Kind.Z_REPORT_TELEGRAM,
+                    {
+                        "text": text,
+                        "lang": selected_lang,
+                        "from_date": from_date,
+                        "to_date": to_date,
+                    },
+                )
+                channel_results["telegram"] = {"ok": True, "details": msg, "queued": True}
+            else:
+                channel_results["telegram"] = {"ok": False, "details": msg, "queued": False}
+    if use_whatsapp:
+        try:
+            details = _send_whatsapp_text(settings=settings, text=text)
+            channel_results["whatsapp"] = {"ok": True, "details": details, "queued": False}
+        except ValueError as e:
+            msg = str(e)
+            if _should_queue_after_whatsapp_error(msg):
+                enqueue(
+                    NotificationQueue.Kind.Z_REPORT_WHATSAPP,
+                    {
+                        "text": text,
+                        "lang": selected_lang,
+                        "from_date": from_date,
+                        "to_date": to_date,
+                    },
+                )
+                channel_results["whatsapp"] = {"ok": True, "details": msg, "queued": True}
+            else:
+                channel_results["whatsapp"] = {"ok": False, "details": msg, "queued": False}
+
+    ok = any(v.get("ok") for v in channel_results.values())
+    details = "Sent successfully" if ok else "All channels failed"
+    return {"ok": ok, "details": details, "channel_results": channel_results, "lang": selected_lang}
+
+
+def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
+    from .notification_queue import enqueue
+
+    settings = IntegrationSettings.get_solo()
+    try:
+        details = _send_whatsapp_debt_reminder_now(
+            settings=settings, phone=phone, customer_name=customer_name, amount=str(amount)
+        )
+        return {"ok": True, "details": details, "queued": False}
+    except ValueError as e:
+        msg = str(e)
+        if not _should_queue_after_whatsapp_error(msg):
+            raise
+        enqueue(
+            NotificationQueue.Kind.WHATSAPP_DEBT_REMINDER,
+            {"phone": phone, "customer_name": customer_name, "amount": str(amount)},
+        )
+        return {"ok": True, "details": msg, "queued": True}

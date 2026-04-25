@@ -16,6 +16,7 @@ import {
   fetchCategories,
   fetchColors,
   fetchMe,
+  fetchLicenseStatus,
   fetchOpenDebts,
   fetchProducts,
   fetchDashboardSummary,
@@ -53,6 +54,7 @@ import {
   type Size,
   type StocktakeSession,
   type StoreSettings,
+  type LicenseStatus,
   type UserRole,
   type Variant,
   type BulkGridCell,
@@ -63,10 +65,20 @@ import { CatalogPage } from './pages/CatalogPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DebtsPage } from './pages/DebtsPage'
 import { InventoryPage } from './pages/InventoryPage'
+import { ActivationPage } from './pages/ActivationPage'
 import { LoginPage } from './pages/LoginPage'
 import { PosPage } from './pages/PosPage'
 import { SalesHistoryPage } from './pages/SalesHistoryPage'
 import { SettingsPage } from './pages/SettingsPage'
+
+const DEFAULT_LICENSE_OK: LicenseStatus = {
+  enforcement: false,
+  valid: true,
+  license_key_masked: '',
+  expires_at: null,
+  last_check_ok: true,
+  last_check_message: '',
+}
 
 export default function App() {
   const { t } = useTranslation()
@@ -102,7 +114,23 @@ export default function App() {
   const [dashboardFilter, setDashboardFilter] = useState<{ from?: string; to?: string; year?: string }>({})
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null)
   const [lastStockSyncAt, setLastStockSyncAt] = useState<string | null>(null)
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null)
   const isManager = role === 'ADMIN' || role === 'OWNER'
+
+  function resetLocalSession() {
+    setAuthed(false)
+    setRole(null)
+    setLicenseStatus(null)
+  }
+
+  async function logoutAndReset() {
+    try {
+      await logout()
+    } catch {
+      // ignore
+    }
+    resetLocalSession()
+  }
 
   async function refreshAdminData() {
     if (!isManager) return
@@ -140,9 +168,15 @@ export default function App() {
         const me = await fetchMe()
         setRole(me.role)
         setAuthed(true)
+        try {
+          setLicenseStatus(await fetchLicenseStatus())
+        } catch {
+          setLicenseStatus(DEFAULT_LICENSE_OK)
+        }
       } catch {
         setAuthed(false)
         setRole(null)
+        setLicenseStatus(null)
       } finally {
         setBooting(false)
       }
@@ -205,7 +239,32 @@ export default function App() {
           const me = await fetchMe()
           setRole(me.role)
           setAuthed(true)
+          try {
+            setLicenseStatus(await fetchLicenseStatus())
+          } catch {
+            setLicenseStatus(DEFAULT_LICENSE_OK)
+          }
         }}
+      />
+    )
+  }
+
+  const licenseBlocked =
+    licenseStatus !== null && licenseStatus.enforcement === true && licenseStatus.valid === false
+
+  if (licenseBlocked && role && licenseStatus) {
+    return (
+      <ActivationPage
+        role={role}
+        initial={licenseStatus}
+        onActivated={async () => {
+          try {
+            setLicenseStatus(await fetchLicenseStatus())
+          } catch {
+            setLicenseStatus(DEFAULT_LICENSE_OK)
+          }
+        }}
+        onLogout={() => void logoutAndReset()}
       />
     )
   }
@@ -218,10 +277,7 @@ export default function App() {
           element={
             <PosPage
               footerLangStrip
-              onLogout={() => {
-                setAuthed(false)
-                setRole(null)
-              }}
+              onLogout={resetLocalSession}
             />
           }
         />
@@ -231,10 +287,7 @@ export default function App() {
             <ProtectedRoute role={role} allow={['CASHIER', 'ADMIN', 'OWNER']}>
               <AdminPanel
                 role={role}
-                onLogout={() => {
-                  setAuthed(false)
-                  setRole(null)
-                }}
+                onLogout={resetLocalSession}
                 debts={debts}
                 sales={sales}
                 categories={categories}

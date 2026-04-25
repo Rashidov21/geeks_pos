@@ -35,3 +35,34 @@ class IntegrationSettings(models.Model):
             return obj
         return cls.objects.create()
 
+
+class NotificationQueue(models.Model):
+    """Offline-first outbound notifications (Telegram/WhatsApp)."""
+
+    class Kind(models.TextChoices):
+        Z_REPORT_TELEGRAM = "Z_REPORT_TELEGRAM", "Z report Telegram"
+        Z_REPORT_WHATSAPP = "Z_REPORT_WHATSAPP", "Z report WhatsApp"
+        WHATSAPP_DEBT_REMINDER = "WHATSAPP_DEBT_REMINDER", "WhatsApp debt reminder"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="integ_notifq_st_cr_idx"),
+        ]
+

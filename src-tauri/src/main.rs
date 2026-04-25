@@ -23,6 +23,91 @@ struct BackendState {
     child: Mutex<Option<Child>>,
 }
 
+fn internal_flush_key() -> String {
+    std::env::var("INTERNAL_FLUSH_KEY").unwrap_or_else(|_| {
+        if cfg!(debug_assertions) {
+            "dev-internal-flush-key".to_string()
+        } else {
+            String::new()
+        }
+    })
+}
+
+fn post_notification_flush() {
+    let key = internal_flush_key();
+    if key.is_empty() {
+        return;
+    }
+    let body = r#"{"limit":50}"#;
+    let req = format!(
+        "POST /api/integrations/notification-queue/flush/ HTTP/1.1\r\n\
+         Host: 127.0.0.1:8000\r\n\
+         X-Internal-Key: {key}\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\r\n\
+         {body}",
+        body.len()
+    );
+    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:8000") {
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
+        let _ = stream.write_all(req.as_bytes());
+        let mut buf = [0u8; 512];
+        let _ = stream.read(&mut buf);
+    }
+}
+
+fn spawn_notification_flush_loop() {
+    thread::spawn(|| loop {
+        thread::sleep(Duration::from_secs(300));
+        post_notification_flush();
+    });
+}
+
+#[cfg(windows)]
+fn machine_id_windows() -> Result<String, String> {
+    let out = Command::new("cmd")
+        .args([
+            "/C",
+            "reg",
+            "query",
+            "HKLM\\SOFTWARE\\Microsoft\\Cryptography",
+            "/v",
+            "MachineGuid",
+        ])
+        .output()
+        .map_err(|e| format!("reg query failed: {e}"))?;
+    if !out.status.success() {
+        return Err("reg query MachineGuid failed".to_string());
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    for line in s.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("machineguid") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if let Some(guid) = parts.last() {
+                if guid.len() >= 32 {
+                    return Ok(guid.to_string());
+                }
+            }
+        }
+    }
+    Err("MachineGuid not found in reg output".to_string())
+}
+
+#[tauri::command]
+fn machine_id() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        machine_id_windows()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("machine_id is only implemented on Windows".to_string())
+    }
+}
+
 fn health_ok() -> bool {
     if let Ok(mut stream) = TcpStream::connect("127.0.0.1:8000") {
         let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
@@ -321,9 +406,16 @@ fn main() {
             if let Err(e) = ensure_backend_started(&state) {
                 eprintln!("Backend start warning: {e}");
             }
+            spawn_notification_flush_loop();
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![print_plain, print_raw, print_escpos, list_printers])
+        .invoke_handler(tauri::generate_handler![
+            print_plain,
+            print_raw,
+            print_escpos,
+            list_printers,
+            machine_id
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri app");
 
