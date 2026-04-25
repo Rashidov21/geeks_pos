@@ -59,6 +59,7 @@ import {
   type BulkGridCell,
 } from './api'
 import { AdminSidebar } from './components/AdminSidebar'
+import { AdminTopNavbar } from './components/AdminTopNavbar'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { CatalogPage } from './pages/CatalogPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -546,6 +547,9 @@ function AdminPanel(props: {
         onLogout={handleAdminLogout}
       />
       <main className="flex-1">
+        {(active === 'dashboard' || active === 'settings') && (
+          <AdminTopNavbar section={active} onLogout={handleAdminLogout} />
+        )}
         <Routes>
           <Route path="dashboard" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DashboardPage summary={props.dashboardSummary} licenseStatus={props.licenseStatus} filter={props.dashboardFilter} primaryChannel={props.integrationSettings?.primary_report_channel || 'both'} onFilter={props.onFilterDashboard} onSendZReport={props.onSendZReport} />} />
           <Route path="pos" element={<PosPage onLogout={props.onLogout} />} />

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { StocktakeSession, Variant } from '../api'
 import { useTranslation } from 'react-i18next'
+import { ActionToast } from '../components/ActionToast'
 
 export function InventoryPage({
   variants,
@@ -21,7 +22,7 @@ export function InventoryPage({
   onSetCount: (variantId: string, countedQty: number) => Promise<void>
   onApplyStocktake: () => Promise<void>
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [variantId, setVariantId] = useState('')
   const [qty, setQty] = useState('1')
   const [qtyDelta, setQtyDelta] = useState('0')
@@ -29,7 +30,7 @@ export function InventoryPage({
   const [stocktakeNote, setStocktakeNote] = useState('')
   const [countByVariant, setCountByVariant] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err' | 'info'; message: string } | null>(null)
 
   const variantOptions = useMemo(
     () => variants.map((v) => ({ id: v.id, label: `${v.product_name_uz} / ${v.barcode} / ${v.stock_qty}` })),
@@ -41,7 +42,10 @@ export function InventoryPage({
     setToast(null)
     try {
       await fn()
-      setToast(okMessage)
+      setToast({ kind: 'ok', message: okMessage })
+    } catch (e: unknown) {
+      const code = (e as Error & { code?: string }).code
+      setToast({ kind: 'err', message: t(`err.${code || 'API_ERROR'}`) })
     } finally {
       setBusy(false)
     }
@@ -51,7 +55,7 @@ export function InventoryPage({
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.inventory.title')}</h2>
       <p className="text-xs text-slate-400">{t('admin.inventory.hint')}</p>
-      {toast && <div className="px-3 py-2 rounded border border-emerald-700 bg-emerald-950 text-emerald-100 text-sm">{toast}</div>}
+      {toast && <ActionToast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />}
 
       <div className="grid md:grid-cols-2 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
@@ -183,7 +187,11 @@ export function InventoryPage({
                 <tbody>
                   {stocktake.lines.map((ln) => (
                     <tr key={ln.id} className="border-t border-slate-800">
-                      <td className="p-2">{ln.product_name_uz}</td>
+                      <td className="p-2">
+                        {i18n.language.startsWith('ru')
+                          ? (ln as typeof ln & { product_name_ru?: string }).product_name_ru || ln.product_name_uz
+                          : ln.product_name_uz}
+                      </td>
                       <td className="p-2">{ln.barcode}</td>
                       <td className="p-2 text-right">{ln.expected_qty}</td>
                       <td className="p-2 text-right">{ln.counted_qty ?? '-'}</td>
@@ -191,14 +199,14 @@ export function InventoryPage({
                       <td className="p-2 text-right">
                         <div className="inline-flex gap-2">
                           <input
-                            className="touch-btn min-h-10 px-2 rounded-lg bg-slate-950 border border-slate-700 w-24"
+                            className="touch-btn min-h-12 px-2 rounded-lg bg-slate-950 border border-slate-700 w-24"
                             value={countByVariant[ln.variant] ?? ''}
                             onChange={(e) => setCountByVariant((p) => ({ ...p, [ln.variant]: e.target.value }))}
                             placeholder={t('admin.settings.qty')}
                           />
                           <button
                             type="button"
-                            className="touch-btn min-h-10 px-3 rounded-lg bg-slate-800 border border-slate-600"
+                            className="touch-btn min-h-12 px-3 rounded-lg bg-slate-800 border border-slate-600"
                             onClick={() => void runAction(() => onSetCount(ln.variant, Number(countByVariant[ln.variant] || '0')), t('admin.settings.stocktakeCount'))}
                           >
                             {t('admin.common.save')}

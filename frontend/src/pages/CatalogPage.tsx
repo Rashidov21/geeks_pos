@@ -367,7 +367,7 @@ export function CatalogPage({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-sm"
+            className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 text-sm"
             onClick={() => setQueueOpen(true)}
           >
             {t('admin.catalog.printQueue')}
@@ -375,7 +375,7 @@ export function CatalogPage({
           <div className="relative">
             <ScanBarcode className="h-4 w-4 text-emerald-400 absolute left-2 top-2" />
             <input
-              className="pl-8 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-sm"
+              className="touch-btn min-h-12 pl-8 px-3 rounded bg-slate-900 border border-slate-700 text-sm"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('admin.catalog.searchPlaceholder', { defaultValue: 'Qidiruv / barcode: 20000001' })}
@@ -391,7 +391,7 @@ export function CatalogPage({
           </label>
         </div>
       </div>
-      {toast && <ActionToast kind="info" message={toast} />}
+      {toast && <ActionToast kind="info" message={toast} onClose={() => setToast(null)} />}
       <p className="text-xs text-slate-400">{t('admin.catalog.hint')}</p>
       <p className="text-xs text-slate-500">{t('admin.catalog.actionsHelp')}</p>
       <p className="text-xs text-emerald-400">{t('admin.catalog.barcodeSearchHelp', { defaultValue: 'Barcode bo‘yicha tez qidirish uchun kod kiriting (masalan 20000001).' })}</p>
@@ -678,13 +678,25 @@ export function CatalogPage({
           <tbody>
             {variants.map((v) => (
               <tr key={v.id} className="border-t border-slate-800">
-                <td className="p-2">{v.product_name_uz}</td>
-                <td className="p-2">{v.size_label_uz} / {v.color_label_uz}</td>
+                <td className="p-2">
+                  {i18n.language.startsWith('ru')
+                    ? (v as typeof v & { product_name_ru?: string }).product_name_ru || v.product_name_uz
+                    : v.product_name_uz}
+                </td>
+                <td className="p-2">
+                  {i18n.language.startsWith('ru')
+                    ? (v as typeof v & { size_label_ru?: string }).size_label_ru || v.size_label_uz
+                    : v.size_label_uz}{' '}
+                  /{' '}
+                  {i18n.language.startsWith('ru')
+                    ? (v as typeof v & { color_label_ru?: string }).color_label_ru || v.color_label_uz
+                    : v.color_label_uz}
+                </td>
                 <td className="p-2">{v.barcode}</td>
                 <td className="p-2 text-right">
                   <button
                     type="button"
-                    className="px-2 py-1 rounded bg-slate-800 border border-slate-600"
+                    className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600"
                     onClick={() => {
                       setQuickAdjust(v)
                       setQuickDelta(0)
@@ -698,7 +710,7 @@ export function CatalogPage({
                   <div className="inline-flex gap-2">
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                      className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={() => {
                         setEditing(v)
                         setEditPrice(v.list_price)
@@ -709,14 +721,14 @@ export function CatalogPage({
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                      className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={() => void addToQueue(v.id)}
                     >
                       <PackagePlus className="h-3.5 w-3.5" /> {t('admin.catalog.queueAdd')}
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                      className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={async () => {
                         try {
                           await onPrintSticker(v.id, 1, '40x30')
@@ -735,7 +747,7 @@ export function CatalogPage({
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                      className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={async () => {
                         try {
                           await onToggleVariant(v)
@@ -751,7 +763,7 @@ export function CatalogPage({
                     </button>
                     <button
                       type="button"
-                      className="px-2 py-1 rounded bg-red-900 border border-red-700 inline-flex items-center gap-1"
+                      className="touch-btn min-h-12 px-3 rounded bg-red-900 border border-red-700 inline-flex items-center gap-1"
                       onClick={async () => {
                         setConfirmDeleteId(v.id)
                       }}
@@ -798,7 +810,13 @@ export function CatalogPage({
         <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
             <h3 className="text-lg font-semibold">{t('admin.catalog.quickAdjust')}</h3>
-            <div className="text-sm text-slate-400">{quickAdjust.product_name_uz} / {quickAdjust.barcode}</div>
+          <div className="text-sm text-slate-400">
+            {i18n.language.startsWith('ru')
+              ? (quickAdjust as typeof quickAdjust & { product_name_ru?: string }).product_name_ru ||
+                quickAdjust.product_name_uz
+              : quickAdjust.product_name_uz}{' '}
+            / {quickAdjust.barcode}
+          </div>
             <div className="text-center text-3xl font-semibold">{quickDelta > 0 ? `+${quickDelta}` : quickDelta}</div>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -819,14 +837,14 @@ export function CatalogPage({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-600"
                 onClick={() => setQuickAdjust(null)}
               >
                 {t('admin.common.cancel')}
               </button>
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+                className="touch-btn min-h-12 px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
                 onClick={async () => {
                   if (quickDelta === 0) return
                   try {
@@ -853,7 +871,7 @@ export function CatalogPage({
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-400">{t('admin.catalog.labelSize')}</label>
               <select
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700"
+                className="touch-btn min-h-12 px-2 py-1 rounded bg-slate-950 border border-slate-700"
                 value={queueSize}
                 onChange={(e) => setQueueSize(e.target.value as '40x30' | '58mm')}
               >
@@ -876,11 +894,15 @@ export function CatalogPage({
                     if (!v) return null
                     return (
                       <tr key={variantId} className="border-t border-slate-800">
-                        <td className="p-2">{v.product_name_uz}</td>
+                        <td className="p-2">
+                          {i18n.language.startsWith('ru')
+                            ? (v as typeof v & { product_name_ru?: string }).product_name_ru || v.product_name_uz
+                            : v.product_name_uz}
+                        </td>
                         <td className="p-2">{v.barcode}</td>
                         <td className="p-2 text-right">
                           <input
-                            className="w-20 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-right"
+                            className="touch-btn min-h-12 w-20 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-right"
                             value={String(copies)}
                             onChange={(e) =>
                               setQueueMap((p) => ({ ...p, [variantId]: Math.max(1, Number(e.target.value || '1')) }))
@@ -901,14 +923,14 @@ export function CatalogPage({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-slate-800 border border-slate-600"
+                className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-600"
                 onClick={() => setQueueOpen(false)}
               >
                 {t('admin.common.cancel')}
               </button>
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+                className="touch-btn min-h-12 px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
                 onClick={async () => {
                   const items = Object.entries(queueMap).map(([variant_id, copies]) => ({ variant_id, copies }))
                   if (items.length === 0) return
@@ -938,7 +960,13 @@ export function CatalogPage({
         <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
             <h3 className="text-lg font-semibold">{t('admin.catalog.editVariant')}</h3>
-            <div className="text-sm text-slate-400">{editing.product_name_uz} / {editing.barcode}</div>
+            <div className="text-sm text-slate-400">
+              {i18n.language.startsWith('ru')
+                ? (editing as typeof editing & { product_name_ru?: string }).product_name_ru ||
+                  editing.product_name_uz
+                : editing.product_name_uz}{' '}
+              / {editing.barcode}
+            </div>
             <input
               className="w-full px-2 py-2 rounded bg-slate-950 border border-slate-700"
               value={editPurchase}
@@ -954,14 +982,14 @@ export function CatalogPage({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-slate-800 border border-slate-600"
+              className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-600"
                 onClick={() => setEditing(null)}
               >
                 {t('admin.common.cancel')}
               </button>
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+              className="touch-btn min-h-12 px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
                 onClick={async () => {
                   try {
                     await onUpdateVariant(editing, {
@@ -1015,12 +1043,12 @@ export function CatalogPage({
             <div className="text-base font-semibold">{t('admin.catalog.confirmDelete')}</div>
             <p className="text-sm text-slate-400">{t('admin.catalog.deleteImpact', { defaultValue: 'Bog‘langan savdo mavjud bo‘lsa soft delete ishlatiladi.' })}</p>
             <div className="flex justify-end gap-2">
-              <button type="button" className="px-3 py-2 rounded bg-slate-800 border border-slate-700" onClick={() => setConfirmDeleteId(null)}>
+              <button type="button" className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-700" onClick={() => setConfirmDeleteId(null)}>
                 {t('admin.common.cancel')}
               </button>
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-red-700 border border-red-500"
+                className="touch-btn min-h-12 px-3 py-2 rounded bg-red-700 border border-red-500"
                 onClick={async () => {
                   const id = confirmDeleteId
                   setConfirmDeleteId(null)

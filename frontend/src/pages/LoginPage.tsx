@@ -57,7 +57,11 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
         onSubmit={submit}
         className="w-full max-w-sm space-y-4 bg-slate-800 p-6 rounded-xl border border-slate-700"
       >
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-center">
+          <img src="/resized-logo.png" alt="logo" className="h-16 w-16 rounded-xl bg-white p-1 object-contain" />
+        </div>
+        <h1 className="text-2xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-emerald-600 text-center">{t('app.title')}</h1>
+        <div className="flex justify-center gap-2">
           <button
             type="button"
             className={`touch-btn text-sm px-4 py-2 rounded-xl border ${
@@ -81,7 +85,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
             {t('lang.ru')}
           </button>
         </div>
-        <h1 className="text-xl font-semibold text-center">{t('app.title')}</h1>
+        
         {licenseInfo && licenseInfo.enforcement && (licenseInfo.requires_activation ?? true) && (
           <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-3 text-sm space-y-2">
             <p className="font-semibold text-amber-100">

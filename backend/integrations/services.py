@@ -42,52 +42,103 @@ def _fmt_money(value) -> str:
     return f"{quantized:,}".replace(",", " ")
 
 
+def _fmt_pct(value) -> str:
+    pct = q_money(value)
+    return f"{pct}%"
+
+
+def _report_derived(metrics: dict) -> dict[str, object]:
+    sales_amount = q_money(metrics.get("sales_amount"))
+    returned_total = q_money(metrics.get("returned_total"))
+    cash_total = q_money(metrics.get("cash_total"))
+    card_total = q_money(metrics.get("card_total"))
+    debt_total = q_money(metrics.get("debt_total"))
+    net_sales = q_money(sales_amount - returned_total)
+
+    if sales_amount > 0:
+        cash_share = q_money((cash_total * 100) / sales_amount)
+        card_share = q_money((card_total * 100) / sales_amount)
+        debt_share = q_money((debt_total * 100) / sales_amount)
+        return_share = q_money((returned_total * 100) / sales_amount)
+    else:
+        cash_share = q_money(0)
+        card_share = q_money(0)
+        debt_share = q_money(0)
+        return_share = q_money(0)
+
+    return {
+        "net_sales": net_sales,
+        "cash_share": cash_share,
+        "card_share": card_share,
+        "debt_share": debt_share,
+        "return_share": return_share,
+    }
+
+
 def _build_z_report_text(*, metrics: dict, lang: str) -> str:
+    d = _report_derived(metrics)
     if lang == "ru":
         return (
             f"Z-Report {metrics['date']}\n"
-            f"Всего продаж: {metrics['sales_count']}\n"
-            f"Сумма продаж: {_fmt_money(metrics['sales_amount'])}\n"
-            f"Наличные: {_fmt_money(metrics['cash_total'])}\n"
-            f"Карта: {_fmt_money(metrics['card_total'])}\n"
-            f"Долг: {_fmt_money(metrics['debt_total'])}\n"
-            f"Возвраты (чеков): {metrics['returned_count']}\n"
-            f"Сумма возвратов: {_fmt_money(metrics['returned_total'])}\n"
-            f"Открытый долг: {_fmt_money(metrics['open_debt_total'])}"
+            f"Кратко: чистая выручка {_fmt_money(d['net_sales'])}; возвраты {_fmt_pct(d['return_share'])}\n\n"
+            f"Продажи:\n"
+            f"- Чеков: {metrics['sales_count']}\n"
+            f"- Сумма продаж: {_fmt_money(metrics['sales_amount'])}\n\n"
+            f"Оплаты:\n"
+            f"- Наличные: {_fmt_money(metrics['cash_total'])} ({_fmt_pct(d['cash_share'])})\n"
+            f"- Карта: {_fmt_money(metrics['card_total'])} ({_fmt_pct(d['card_share'])})\n"
+            f"- Долг: {_fmt_money(metrics['debt_total'])} ({_fmt_pct(d['debt_share'])})\n\n"
+            f"Возвраты:\n"
+            f"- Чеков возврата: {metrics['returned_count']}\n"
+            f"- Сумма возвратов: {_fmt_money(metrics['returned_total'])} ({_fmt_pct(d['return_share'])})\n\n"
+            f"Итог дня:\n"
+            f"- Чистая выручка: {_fmt_money(d['net_sales'])}\n"
+            f"- Открытый долг: {_fmt_money(metrics['open_debt_total'])}"
         )
     return (
         f"Z-Report {metrics['date']}\n"
-        f"Jami savdo: {metrics['sales_count']}\n"
-        f"Savdo summasi: {_fmt_money(metrics['sales_amount'])}\n"
-        f"Naqd: {_fmt_money(metrics['cash_total'])}\n"
-        f"Karta: {_fmt_money(metrics['card_total'])}\n"
-        f"Nasiya: {_fmt_money(metrics['debt_total'])}\n"
-        f"Qaytarilgan tovarlar (cheklar): {metrics['returned_count']}\n"
-        f"Qaytish summasi: {_fmt_money(metrics['returned_total'])}\n"
-        f"Ochiq qarz: {_fmt_money(metrics['open_debt_total'])}"
+        f"Qisqa xulosa: sof tushum {_fmt_money(d['net_sales'])}; qaytish {_fmt_pct(d['return_share'])}\n\n"
+        f"Savdo:\n"
+        f"- Cheklar soni: {metrics['sales_count']}\n"
+        f"- Savdo summasi: {_fmt_money(metrics['sales_amount'])}\n\n"
+        f"To'lovlar:\n"
+        f"- Naqd: {_fmt_money(metrics['cash_total'])} ({_fmt_pct(d['cash_share'])})\n"
+        f"- Karta: {_fmt_money(metrics['card_total'])} ({_fmt_pct(d['card_share'])})\n"
+        f"- Nasiya: {_fmt_money(metrics['debt_total'])} ({_fmt_pct(d['debt_share'])})\n\n"
+        f"Qaytish:\n"
+        f"- Qaytish cheklari: {metrics['returned_count']}\n"
+        f"- Qaytish summasi: {_fmt_money(metrics['returned_total'])} ({_fmt_pct(d['return_share'])})\n\n"
+        f"Kun yakuni:\n"
+        f"- Sof tushum: {_fmt_money(d['net_sales'])}\n"
+        f"- Ochiq qarz: {_fmt_money(metrics['open_debt_total'])}"
     )
 
 
 def _build_z_report_whatsapp_text(*, metrics: dict, lang: str) -> str:
+    d = _report_derived(metrics)
     if lang == "ru":
         return (
             f"*Z-Report* _{metrics['date']}_\n"
+            f"*Кратко:* чистая выручка {_fmt_money(d['net_sales'])}; возвраты {_fmt_pct(d['return_share'])}\n"
             f"- *Продажи:* {metrics['sales_count']}\n"
-            f"- *Сумма:* {_fmt_money(metrics['sales_amount'])}\n"
-            f"- Наличные: {_fmt_money(metrics['cash_total'])}\n"
-            f"- Карта: {_fmt_money(metrics['card_total'])}\n"
-            f"- Долг: {_fmt_money(metrics['debt_total'])}\n"
-            f"- Возвраты: {metrics['returned_count']} / {_fmt_money(metrics['returned_total'])}\n"
+            f"- *Сумма продаж:* {_fmt_money(metrics['sales_amount'])}\n"
+            f"- Наличные: {_fmt_money(metrics['cash_total'])} ({_fmt_pct(d['cash_share'])})\n"
+            f"- Карта: {_fmt_money(metrics['card_total'])} ({_fmt_pct(d['card_share'])})\n"
+            f"- Долг: {_fmt_money(metrics['debt_total'])} ({_fmt_pct(d['debt_share'])})\n"
+            f"- Возвраты: {metrics['returned_count']} / {_fmt_money(metrics['returned_total'])} ({_fmt_pct(d['return_share'])})\n"
+            f"- *Чистая выручка:* {_fmt_money(d['net_sales'])}\n"
             f"- *Открытый долг:* {_fmt_money(metrics['open_debt_total'])}"
         )
     return (
         f"*Z-Report* _{metrics['date']}_\n"
+        f"*Qisqa xulosa:* sof tushum {_fmt_money(d['net_sales'])}; qaytish {_fmt_pct(d['return_share'])}\n"
         f"- *Savdolar:* {metrics['sales_count']}\n"
         f"- *Savdo summasi:* {_fmt_money(metrics['sales_amount'])}\n"
-        f"- Naqd: {_fmt_money(metrics['cash_total'])}\n"
-        f"- Karta: {_fmt_money(metrics['card_total'])}\n"
-        f"- Nasiya: {_fmt_money(metrics['debt_total'])}\n"
-        f"- Qaytish: {metrics['returned_count']} / {_fmt_money(metrics['returned_total'])}\n"
+        f"- Naqd: {_fmt_money(metrics['cash_total'])} ({_fmt_pct(d['cash_share'])})\n"
+        f"- Karta: {_fmt_money(metrics['card_total'])} ({_fmt_pct(d['card_share'])})\n"
+        f"- Nasiya: {_fmt_money(metrics['debt_total'])} ({_fmt_pct(d['debt_share'])})\n"
+        f"- Qaytish: {metrics['returned_count']} / {_fmt_money(metrics['returned_total'])} ({_fmt_pct(d['return_share'])})\n"
+        f"- *Sof tushum:* {_fmt_money(d['net_sales'])}\n"
         f"- *Ochiq qarz:* {_fmt_money(metrics['open_debt_total'])}"
     )
 

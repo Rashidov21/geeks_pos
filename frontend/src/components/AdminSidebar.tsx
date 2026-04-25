@@ -41,7 +41,7 @@ export function AdminSidebar({
       : ITEMS
 
   return (
-    <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-950 p-3 flex flex-col min-h-screen">
+    <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-950 p-3 flex flex-col h-screen max-h-screen overflow-hidden">
       <div className="text-xs uppercase tracking-wide text-slate-500 px-2 pb-2">{t('admin.sidebar.title')}</div>
       <nav className="space-y-2 flex-1 min-h-0 overflow-y-auto">
         {visibleItems.map((item) => {

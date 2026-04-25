@@ -29,7 +29,7 @@ export function DebtsPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.debts.title')}</h2>
-      {toast && <ActionToast kind={toast.kind} message={toast.message} />}
+      {toast && <ActionToast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />}
       <p className="text-xs text-slate-400">{t('admin.debts.hint')}</p>
       <div className="rounded border border-slate-700 overflow-hidden">
         <table className="w-full text-sm">

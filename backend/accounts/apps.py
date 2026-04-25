@@ -7,3 +7,6 @@ class AccountsConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
+        from .bootstrap import ensure_default_users_and_pins
+
+        ensure_default_users_and_pins()

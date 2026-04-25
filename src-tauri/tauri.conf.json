@@ -53,9 +53,9 @@
     },
     "windows": [
       {
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "decorations": false,
-        "fullscreen": true,
+        "fullscreen": false,
         "height": 600,
         "resizable": false,
         "title": "Geeks POS",

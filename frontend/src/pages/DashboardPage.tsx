@@ -3,7 +3,21 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
 import { ActionToast } from '../components/ActionToast'
-import { Package, TrendingDown, TrendingUp, Send, MessageCircle } from 'lucide-react'
+import {
+  BadgeDollarSign,
+  Ban,
+  CalendarClock,
+  CircleDollarSign,
+  CreditCard,
+  MessageCircle,
+  Package,
+  Send,
+  ShoppingCart,
+  ShieldCheck,
+  TrendingDown,
+  TrendingUp,
+  WalletCards,
+} from 'lucide-react'
 
 export function DashboardPage({
   summary,
@@ -29,16 +43,19 @@ export function DashboardPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.dashboard.title')}</h2>
-      {toast && <ActionToast kind={toast.kind} message={toast.message} />}
+      {toast && <ActionToast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('license.title', { defaultValue: 'License' })}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            {t('license.title', { defaultValue: 'License' })}
+          </div>
           <div
             className={`text-lg mt-1 font-medium ${
               licenseStatus?.valid === false ? 'text-red-300' : 'text-emerald-300'
             }`}
           >
-            {licenseStatus?.valid === false ? t('status.BLOCKED', { defaultValue: 'Blocked' }) : t('status.ACTIVE', { defaultValue: 'Active' })}
+            {licenseStatus?.valid === false ? t('status.BLOCKED') : t('status.ACTIVE')}
           </div>
           {licenseStatus?.expires_at && (
             <div className="text-xs text-slate-500 mt-1">
@@ -79,23 +96,38 @@ export function DashboardPage({
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.salesAmount')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <CircleDollarSign className="h-4 w-4" />
+            {t('admin.dashboard.salesAmount')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.sales_amount)}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.netProfit')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            {t('admin.dashboard.netProfit')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.net_profit)}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.salesCount')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            {t('admin.dashboard.salesCount')}
+          </div>
           <div className="text-2xl mt-1">{totals?.sales_count ?? 0}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.todaySales')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <CalendarClock className="h-4 w-4" />
+            {t('admin.dashboard.todaySales')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.today_sales_amount)}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.totalDebt')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <WalletCards className="h-4 w-4" />
+            {t('admin.dashboard.totalDebt')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.open_debt_total)}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
@@ -105,7 +137,10 @@ export function DashboardPage({
           <div className="text-2xl mt-1">{totals?.inventory_items ?? 0}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.inventoryValue')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <BadgeDollarSign className="h-4 w-4" />
+            {t('admin.dashboard.inventoryValue')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.inventory_sale_value)}</div>
         </div>
     
@@ -166,23 +201,38 @@ export function DashboardPage({
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.openDebts')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            {t('admin.dashboard.openDebts')}
+          </div>
           <div className="text-2xl mt-1">{totals?.open_debt_count ?? 0}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.voidCount')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <Ban className="h-4 w-4" />
+            {t('admin.dashboard.voidCount')}
+          </div>
           <div className="text-2xl mt-1">{totals?.void_count ?? 0}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.avgCheck')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <CircleDollarSign className="h-4 w-4" />
+            {t('admin.dashboard.avgCheck')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.avg_check)}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.grossProfit')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            {t('admin.dashboard.grossProfit')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.gross_profit)}</div>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400">{t('admin.dashboard.totalDiscounts')}</div>
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <TrendingDown className="h-4 w-4" />
+            {t('admin.dashboard.totalDiscounts')}
+          </div>
           <div className="text-2xl mt-1">{formatMoney(totals?.total_discounts)}</div>
         </div>
       </div>
@@ -192,11 +242,11 @@ export function DashboardPage({
           <input className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2" value={filter.year || ''} onChange={(e) => onFilter(undefined, undefined, e.target.value)} placeholder="2026" />
         </label>
         <label className="text-xs text-slate-400">
-          From
+          {t('admin.common.from')}
           <input type="date" className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2" value={filter.from || ''} onChange={(e) => onFilter(e.target.value, filter.to, undefined)} />
         </label>
         <label className="text-xs text-slate-400">
-          To
+          {t('admin.common.to')}
           <input type="date" className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2" value={filter.to || ''} onChange={(e) => onFilter(filter.from, e.target.value, undefined)} />
         </label>
         <button
@@ -205,7 +255,7 @@ export function DashboardPage({
           className="touch-btn min-h-12 px-5 py-3 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 text-sm font-medium"
           onClick={() => onFilter(undefined, undefined, filter.year)}
         >
-          {t('admin.common.apply', { defaultValue: 'Apply' })}
+          {t('admin.common.apply')}
         </button>
       </div>
     </div>

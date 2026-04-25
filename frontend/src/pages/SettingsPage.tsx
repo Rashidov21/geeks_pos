@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Building2, HardDriveDownload, Printer, ScanLine, ShieldCheck, Bot, Cog } from 'lucide-react'
 import {
   activateLicense,
   fetchLicenseStatus,
@@ -62,7 +63,7 @@ export function SettingsPage({
   onBackupNow: () => Promise<{ ok: boolean; backup_path: string }>
   canManageInventory: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [activeTab, setActiveTab] = useState<'store' | 'bots' | 'security'>('store')
   const [actionToast, setActionToast] = useState<{
     kind: 'ok' | 'err'
@@ -198,6 +199,11 @@ export function SettingsPage({
         ? 'warn'
         : 'ok'
 
+  const inputCls = 'touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base'
+  const inputSoftCls =
+    'touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base'
+  const sectionCardCls = 'rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 space-y-3'
+
   if (!settings && !integrations) {
     return <div className="p-4">{t('admin.common.loading')}</div>
   }
@@ -220,40 +226,58 @@ export function SettingsPage({
     }
   }
 
+  function shortBackupName(path: string): string {
+    const p = (path || '').trim()
+    if (!p) return ''
+    const chunks = p.split(/[/\\]/)
+    return chunks[chunks.length - 1] || p
+  }
+
   return (
     <div className="p-4 space-y-4">
-      <h2 className="text-xl font-semibold">{t('admin.settings.title')}</h2>
-      <div className="inline-flex rounded-xl border border-slate-700 overflow-hidden">
+      <div className="space-y-1">
+        <h2 className="text-xl font-semibold">{t('admin.settings.title')}</h2>
+        <p className="text-xs text-slate-400">
+          {t('admin.settings.headerHint')}
+        </p>
+      </div>
+      <div className="inline-flex flex-wrap rounded-xl border border-slate-700 overflow-hidden">
         <button
           type="button"
-          className={`touch-btn px-5 py-3 text-sm ${activeTab === 'store' ? 'bg-emerald-700' : 'bg-slate-900'}`}
+          className={`touch-btn min-h-12 px-5 py-3 text-sm inline-flex items-center gap-2 ${activeTab === 'store' ? 'bg-emerald-700' : 'bg-slate-900'}`}
           onClick={() => setActiveTab('store')}
         >
+          <Building2 className="h-4 w-4" />
           {t('admin.settings.tabStore')}
         </button>
         <button
           type="button"
-          className={`touch-btn px-5 py-3 text-sm ${activeTab === 'bots' ? 'bg-emerald-700' : 'bg-slate-900'}`}
+          className={`touch-btn min-h-12 px-5 py-3 text-sm inline-flex items-center gap-2 ${activeTab === 'bots' ? 'bg-emerald-700' : 'bg-slate-900'}`}
           onClick={() => setActiveTab('bots')}
         >
+          <Bot className="h-4 w-4" />
           {t('admin.settings.tabBots')}
         </button>
         <button
           type="button"
-          className={`touch-btn px-5 py-3 text-sm ${activeTab === 'security' ? 'bg-emerald-700' : 'bg-slate-900'}`}
+          className={`touch-btn min-h-12 px-5 py-3 text-sm inline-flex items-center gap-2 ${activeTab === 'security' ? 'bg-emerald-700' : 'bg-slate-900'}`}
           onClick={() => setActiveTab('security')}
         >
+          <ShieldCheck className="h-4 w-4" />
           {t('admin.settings.tabSecurity', { defaultValue: 'Security' })}
         </button>
       </div>
-      {actionToast && <ActionToast kind={actionToast.kind} message={actionToast.message} />}
+      {actionToast && (
+        <ActionToast kind={actionToast.kind} message={actionToast.message} onClose={() => setActionToast(null)} />
+      )}
       {activeTab === 'store' && (
         <>
-          {settings?.logo_url && (
-            <img src={settings.logo_url} alt="logo" className="h-20 object-contain bg-white p-2 rounded" />
-          )}
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 inline-flex items-center gap-2 text-slate-200">
+            <Building2 className="h-5 w-5 text-emerald-400" />
+            <span className="font-medium">{t('admin.settings.tabStore')}</span>
+          </div>
           <form
-            className="space-y-2 max-w-2xl"
+            className="space-y-4 max-w-4xl"
             onSubmit={async (e) => {
               e.preventDefault()
               setBusy(true)
@@ -271,34 +295,62 @@ export function SettingsPage({
               }
             }}
           >
-            <label className="block text-xs text-slate-400">{t('admin.settings.brandName')}</label>
-            <input
-              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
-              value={form.brand_name}
-              onChange={(e) => setForm({ ...form, brand_name: e.target.value })}
-              placeholder={t('admin.settings.brandNameExample')}
-            />
-            <label className="block text-xs text-slate-400">{t('admin.settings.phone')}</label>
-            <input
-              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder={t('admin.settings.phoneExample')}
-            />
-            <label className="block text-xs text-slate-400">{t('admin.settings.address')}</label>
-            <input
-              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              placeholder={t('admin.settings.addressExample')}
-            />
-            <label className="block text-xs text-slate-400">{t('admin.settings.footer')}</label>
-            <input
-              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
-              value={form.footer_note}
-              onChange={(e) => setForm({ ...form, footer_note: e.target.value })}
-              placeholder={t('admin.settings.footerExample')}
-            />
+            <div className={sectionCardCls}>
+              <div className="inline-flex items-center gap-2 text-slate-200">
+                <Cog className="h-4 w-4 text-emerald-400" />
+                <h3 className="font-medium">{t('admin.settings.saveSettings')}</h3>
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs text-slate-400">{t('admin.settings.brandName')}</label>
+                  <input
+                    className={inputCls}
+                    value={form.brand_name}
+                    onChange={(e) => setForm({ ...form, brand_name: e.target.value })}
+                    placeholder={t('admin.settings.brandNameExample')}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-slate-400">{t('admin.settings.phone')}</label>
+                  <input
+                    className={inputCls}
+                    value={form.phone}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    placeholder={t('admin.settings.phoneExample')}
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-1">
+                  <label className="block text-xs text-slate-400">{t('admin.settings.address')}</label>
+                  <input
+                    className={inputCls}
+                    value={form.address}
+                    onChange={(e) => setForm({ ...form, address: e.target.value })}
+                    placeholder={t('admin.settings.addressExample')}
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-1">
+                  <label className="block text-xs text-slate-400">{t('admin.settings.logoHint')}</label>
+                  {settings?.logo_url && (
+                    <img src={settings.logo_url} alt="logo" className="h-20 object-contain bg-white p-2 rounded-xl border border-slate-700" />
+                  )}
+                  <input
+                    className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-1">
+                  <label className="block text-xs text-slate-400">{t('admin.settings.footer')}</label>
+                  <input
+                    className={inputCls}
+                    value={form.footer_note}
+                    onChange={(e) => setForm({ ...form, footer_note: e.target.value })}
+                    placeholder={t('admin.settings.footerExample')}
+                  />
+                </div>
+              </div>
+            </div>
             <div
               className={`rounded-xl border p-3 text-sm ${
                 hardwareAlert === 'err'
@@ -308,7 +360,10 @@ export function SettingsPage({
                     : 'border-emerald-800 bg-emerald-950/20 text-emerald-100'
               }`}
             >
-              <div className="font-medium text-base">{t('admin.settings.printersTitle')}</div>
+              <div className="font-medium text-base inline-flex items-center gap-2">
+                <Printer className="h-4 w-4" />
+                {t('admin.settings.printersTitle')}
+              </div>
               <ul className="mt-2 list-disc list-inside text-xs space-y-1 opacity-95">
                 <li>
                   {receiptHw === 'ok' && t('admin.settings.statusReceiptOk')}
@@ -325,9 +380,12 @@ export function SettingsPage({
               </ul>
             </div>
 
-            <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4 max-w-2xl">
+            <div className={`${sectionCardCls} max-w-4xl`}>
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h3 className="font-semibold text-slate-100">{t('admin.settings.hwWizard.title')}</h3>
+                <h3 className="font-semibold text-slate-100 inline-flex items-center gap-2">
+                  <ScanLine className="h-4 w-4" />
+                  {t('admin.settings.hwWizard.title')}
+                </h3>
                 <div className="flex gap-1">
                   {[1, 2, 3].map((s) => (
                     <div
@@ -350,14 +408,14 @@ export function SettingsPage({
                   <label className="block text-xs text-slate-400">{t('admin.settings.receiptPrinterName')}</label>
                   <input
                     list="printer-options"
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.receipt_printer_name}
                     onChange={(e) => setForm({ ...form, receipt_printer_name: e.target.value })}
                     placeholder={t('admin.settings.printerNameExample')}
                   />
                   <p className="text-xs text-slate-500">{t('admin.settings.printerNameHelp')}</p>
                   <select
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.receipt_printer_type}
                     onChange={(e) =>
                       setForm({ ...form, receipt_printer_type: e.target.value as 'ESC_POS' | 'TSPL' })
@@ -392,7 +450,7 @@ export function SettingsPage({
                     {t('admin.settings.testReceipt')}
                   </button>
                   <select
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.receipt_width}
                     onChange={(e) => setForm({ ...form, receipt_width: e.target.value as '58mm' | '80mm' })}
                   >
@@ -426,13 +484,13 @@ export function SettingsPage({
                   <label className="block text-xs text-slate-400">{t('admin.settings.labelPrinterName')}</label>
                   <input
                     list="printer-options"
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.label_printer_name}
                     onChange={(e) => setForm({ ...form, label_printer_name: e.target.value })}
                     placeholder={t('admin.settings.labelPrinterNameExample')}
                   />
                   <select
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.label_printer_type}
                     onChange={(e) =>
                       setForm({ ...form, label_printer_type: e.target.value as 'ESC_POS' | 'TSPL' })
@@ -489,7 +547,7 @@ export function SettingsPage({
                 <div className="space-y-3">
                   <div className="text-slate-300">{t('admin.settings.hwWizard.step3')}</div>
                   <select
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.scanner_mode}
                     onChange={(e) => setForm({ ...form, scanner_mode: e.target.value as 'keyboard' | 'serial' })}
                   >
@@ -503,21 +561,21 @@ export function SettingsPage({
                   )}
                   <label className="block text-xs text-slate-400">{t('admin.settings.scannerPrefix')}</label>
                   <input
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.scanner_prefix}
                     onChange={(e) => setForm({ ...form, scanner_prefix: e.target.value })}
                     placeholder={t('admin.settings.scannerPrefixExample')}
                   />
                   <label className="block text-xs text-slate-400">{t('admin.settings.scannerSuffix')}</label>
                   <input
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={form.scanner_suffix}
                     onChange={(e) => setForm({ ...form, scanner_suffix: e.target.value })}
                     placeholder={t('admin.settings.scannerSuffixExample')}
                   />
                   <p className="text-xs text-slate-500">{t('admin.settings.scannerSuffixHelp')}</p>
                   <input
-                    className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                    className={inputSoftCls}
                     value={scannerTest}
                     onChange={(e) => {
                       const raw = e.target.value
@@ -549,6 +607,7 @@ export function SettingsPage({
                 </div>
               )}
             </div>
+            <div className={sectionCardCls}>
             <label className="text-sm flex items-center gap-2">
               <input
                 type="checkbox"
@@ -564,14 +623,12 @@ export function SettingsPage({
               type="number"
               min={1}
               max={240}
-              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-900 border border-slate-700 text-base"
+              className={inputCls}
               value={String(form.lock_timeout_minutes ?? 5)}
               onChange={(e) =>
                 setForm({ ...form, lock_timeout_minutes: Math.max(1, Number(e.target.value || 5)) })
               }
             />
-            <input type="file" accept="image/*" onChange={(e) => setLogo(e.target.files?.[0] ?? null)} />
-            <p className="text-xs text-slate-500">{t('admin.settings.logoHint')}</p>
             <button
               type="submit"
               disabled={busy}
@@ -579,19 +636,23 @@ export function SettingsPage({
             >
               {busy ? t('admin.common.saving') : t('admin.settings.saveSettings')}
             </button>
+            </div>
           </form>
-          <p className="text-xs text-slate-400">{t('admin.settings.headerHint')}</p>
         </>
       )}
       {activeTab === 'bots' && (
         <div className="space-y-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 inline-flex items-center gap-2 text-slate-200">
+            <Bot className="h-5 w-5 text-emerald-400" />
+            <span className="font-medium">{t('admin.settings.tabBots')}</span>
+          </div>
           <p className="text-xs text-slate-400">{t('admin.settings.botsHelp', { defaultValue: 'Telegram/WhatsApp sozlamalarini to‘ldiring va asosiy kanalni tanlang.' })}</p>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-2">
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-2">
             <h3 className="font-medium">{t('admin.bots.telegram')}</h3>
             <label className="block text-xs text-slate-400">{t('admin.bots.telegramToken')}</label>
             <input
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.telegram_bot_token}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, telegram_bot_token: e.target.value }))}
               placeholder={t('admin.bots.telegramToken')}
@@ -603,17 +664,17 @@ export function SettingsPage({
             />
             <label className="block text-xs text-slate-400">{t('admin.bots.telegramChatId')}</label>
             <input
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.telegram_chat_id}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, telegram_chat_id: e.target.value }))}
               placeholder={t('admin.bots.telegramChatId')}
             />
           </div>
-          <div className="rounded border border-slate-700 bg-slate-900 p-4 space-y-2">
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-2">
             <h3 className="font-medium">{t('admin.bots.whatsapp')}</h3>
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappApiBase')}</label>
             <input
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_api_base}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_base: e.target.value }))}
               placeholder={t('admin.bots.whatsappApiBase')}
@@ -621,7 +682,7 @@ export function SettingsPage({
             <p className="text-xs text-slate-500">{t('admin.bots.whatsappApiBaseHelp')}</p>
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappProvider')}</label>
             <select
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_provider}
               onChange={(e) =>
                 setIntegrationForm((p) => ({
@@ -637,14 +698,14 @@ export function SettingsPage({
               <>
                 <label className="block text-xs text-slate-400">{t('admin.bots.greenApiInstanceId')}</label>
                 <input
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+                  className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
                   value={integrationForm.greenapi_instance_id}
                   onChange={(e) => setIntegrationForm((p) => ({ ...p, greenapi_instance_id: e.target.value }))}
                   placeholder={t('admin.bots.greenApiInstanceId')}
                 />
                 <label className="block text-xs text-slate-400">{t('admin.bots.greenApiTokenInstance')}</label>
                 <input
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+                  className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
                   value={integrationForm.greenapi_api_token_instance}
                   onChange={(e) =>
                     setIntegrationForm((p) => ({ ...p, greenapi_api_token_instance: e.target.value }))
@@ -660,7 +721,7 @@ export function SettingsPage({
             )}
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappToken')}</label>
             <input
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_api_token}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_token: e.target.value }))}
               placeholder={t('admin.bots.whatsappToken')}
@@ -672,14 +733,14 @@ export function SettingsPage({
             />
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappSender')}</label>
             <input
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.whatsapp_sender}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_sender: e.target.value }))}
               placeholder={t('admin.bots.whatsappSender')}
             />
             <label className="block text-xs text-slate-400">{t('admin.bots.primaryChannel', { defaultValue: 'Primary Z-Report channel' })}</label>
             <select
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn min-h-12 w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
               value={integrationForm.primary_report_channel || 'both'}
               onChange={(e) =>
                 setIntegrationForm((p) => ({
@@ -694,11 +755,11 @@ export function SettingsPage({
             </select>
           </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={busy}
-              className="px-4 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-40"
+              className="touch-btn min-h-12 px-4 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-40"
               onClick={async () => {
                 setBusy(true)
                 try {
@@ -713,7 +774,7 @@ export function SettingsPage({
             <button
               type="button"
               disabled={busy}
-              className="px-4 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-40"
+              className="touch-btn min-h-12 px-4 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-40"
               onClick={async () => {
                 setBusy(true)
                 try {
@@ -729,8 +790,12 @@ export function SettingsPage({
         </div>
       )}
       {activeTab === 'security' && (
-        <div className="space-y-3">
-          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <div className="space-y-3 max-w-4xl">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 inline-flex items-center gap-2 text-slate-200">
+            <ShieldCheck className="h-5 w-5 text-emerald-400" />
+            <span className="font-medium">{t('admin.settings.tabSecurity')}</span>
+          </div>
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3">
             <h3 className="text-lg font-semibold">{t('license.title')}</h3>
             <div className="text-sm text-slate-300 space-y-1">
               <p>
@@ -778,7 +843,7 @@ export function SettingsPage({
             </button>
           </div>
           <h3 className="text-lg font-semibold">{t('admin.settings.pinUsers', { defaultValue: 'User PIN management' })}</h3>
-          <div className="rounded border border-slate-700 overflow-hidden">
+          <div className="rounded-2xl border border-slate-700 overflow-hidden bg-slate-900/40">
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-slate-400">
                 <tr>
@@ -798,7 +863,7 @@ export function SettingsPage({
                         type="password"
                         inputMode="numeric"
                         maxLength={4}
-                        className="w-24 px-2 py-1 rounded bg-slate-950 border border-slate-700"
+                        className="touch-btn min-h-12 w-24 px-2 py-1 rounded bg-slate-950 border border-slate-700"
                         value={pinDrafts[u.username] || ''}
                         onChange={(e) =>
                           setPinDrafts((p) => ({
@@ -813,7 +878,7 @@ export function SettingsPage({
                       <div className="inline-flex gap-2">
                         <button
                           type="button"
-                          className="px-2 py-1 rounded bg-emerald-700 border border-emerald-500"
+                          className="touch-btn min-h-12 px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
                           onClick={async () => {
                             const pin = pinDrafts[u.username] || ''
                             if (pin.length !== 4) return
@@ -827,7 +892,7 @@ export function SettingsPage({
                         </button>
                         <button
                           type="button"
-                          className="px-2 py-1 rounded bg-slate-800 border border-slate-700"
+                          className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-700"
                           onClick={async () => {
                             await runAction(t('admin.settings.saveSettings'), async () => {
                               await setUserPin(u.username, '0000', false)
@@ -846,23 +911,31 @@ export function SettingsPage({
           </div>
         </div>
       )}
-      <div className="flex gap-2 items-center">
+      <div className="flex flex-wrap gap-2 items-center rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+        <HardDriveDownload className="h-5 w-5 text-emerald-400 shrink-0" />
+        <div className="mr-auto">
+          <div className="font-medium text-slate-200">{t('admin.settings.backupNow')}</div>
+          <div className="text-xs text-slate-400">{t('admin.settings.backupHint', { defaultValue: 'Baza nusxasini xavfsiz joyga saqlang.' })}</div>
+        </div>
         <button
           type="button"
-          className="px-3 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
+          className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
           disabled={backupBusy}
           onClick={async () => {
             setBackupBusy(true)
             try {
               const res = await onBackupNow()
               setBackupMsg(res.backup_path)
-              setActionToast({ kind: 'ok', message: t('admin.settings.backupSuccess') })
+              setActionToast({
+                kind: 'ok',
+                message: `${t('admin.settings.backupSuccess')}: ${shortBackupName(res.backup_path)}`,
+              })
             } catch (e: unknown) {
               const code = (e as Error & { code?: string }).code
               const message = t(`err.${code || 'BACKUP_FAILED'}`, {
                 defaultValue: t('err.BACKUP_FAILED'),
               })
-              setActionToast({ kind: 'err', message })
+              setActionToast({ kind: 'err', message: `${message}. ${t('admin.settings.backupRetry', { defaultValue: 'Qayta urinib ko‘ring.' })}` })
             } finally {
               setBackupBusy(false)
             }
@@ -877,16 +950,16 @@ export function SettingsPage({
         <div className="pt-6 border-t border-slate-800 space-y-3">
           <h3 className="text-lg font-semibold">{t('admin.settings.stocktakeTitle')}</h3>
           {!stocktake && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
-              className="px-3 py-2 rounded bg-slate-900 border border-slate-700"
+              className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-900 border border-slate-700"
               value={stocktakeNote}
               onChange={(e) => setStocktakeNote(e.target.value)}
               placeholder={t('admin.settings.sessionNote')}
             />
             <button
               type="button"
-              className="px-3 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-50"
+              className="touch-btn min-h-12 px-3 py-2 rounded bg-emerald-700 border border-emerald-500 disabled:opacity-50"
               disabled={stocktakeBusy}
               onClick={async () => {
                 setStocktakeBusy(true)
@@ -901,7 +974,7 @@ export function SettingsPage({
             </button>
             <button
               type="button"
-              className="px-3 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
+              className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
               disabled={stocktakeBusy}
               onClick={async () => {
                 setStocktakeBusy(true)
@@ -937,7 +1010,11 @@ export function SettingsPage({
                 <tbody>
                   {stocktake.lines.map((ln) => (
                     <tr key={ln.id} className="border-t border-slate-800">
-                      <td className="p-2">{ln.product_name_uz}</td>
+                      <td className="p-2">
+                        {i18n.language.startsWith('ru')
+                          ? (ln as typeof ln & { product_name_ru?: string }).product_name_ru || ln.product_name_uz
+                          : ln.product_name_uz}
+                      </td>
                       <td className="p-2">{ln.barcode}</td>
                       <td className="p-2 text-right">{ln.expected_qty}</td>
                       <td className="p-2 text-right">{ln.counted_qty ?? '-'}</td>
@@ -945,7 +1022,7 @@ export function SettingsPage({
                       <td className="p-2 text-right">
                         <div className="inline-flex gap-2">
                           <input
-                            className="px-2 py-1 rounded bg-slate-950 border border-slate-700 w-20"
+                            className="touch-btn min-h-12 px-2 py-1 rounded bg-slate-950 border border-slate-700 w-20"
                             value={countByVariant[ln.variant] ?? ''}
                             onChange={(e) =>
                               setCountByVariant((p) => ({ ...p, [ln.variant]: e.target.value }))
@@ -954,7 +1031,7 @@ export function SettingsPage({
                           />
                           <button
                             type="button"
-                            className="px-2 py-1 rounded bg-slate-800 border border-slate-600 disabled:opacity-50"
+                            className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-600 disabled:opacity-50"
                             disabled={stocktakeBusy}
                             onClick={async () => {
                               setStocktakeBusy(true)
@@ -979,7 +1056,7 @@ export function SettingsPage({
             {stocktake.status === 'OPEN' && (
               <button
                 type="button"
-                className="px-3 py-2 rounded bg-amber-700 border border-amber-500 disabled:opacity-50"
+                className="touch-btn min-h-12 px-3 py-2 rounded bg-amber-700 border border-amber-500 disabled:opacity-50"
                 disabled={stocktakeBusy}
                 onClick={async () => {
                   setStocktakeBusy(true)

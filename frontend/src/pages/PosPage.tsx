@@ -21,6 +21,7 @@ import { usePosStore, type PayMode, type SuspendedCart } from '../store/posStore
 import { formatMoney } from '../utils/money'
 import { dispatchReceipt } from '../utils/printingHub'
 import { TouchNumpad } from '../components/TouchNumpad'
+import { ActionToast } from '../components/ActionToast'
 
 Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP })
 
@@ -417,7 +418,6 @@ export function PosPage({
 
   function showToast(kind: 'err' | 'ok', msg: string) {
     setToast({ kind, msg })
-    setTimeout(() => setToast(null), 4000)
   }
 
   function resetCheckoutState() {
@@ -490,14 +490,20 @@ export function PosPage({
   }
 
   function addVariantToCart(v: PosVariant, opts?: { clearSearch?: boolean }) {
+    const productNameRu = (v as PosVariant & { product_name_ru?: string }).product_name_ru
+    const sizeLabelRu = (v as PosVariant & { size_label_ru?: string }).size_label_ru
+    const colorLabelRu = (v as PosVariant & { color_label_ru?: string }).color_label_ru
+    const productName = i18n.language.startsWith('ru') ? productNameRu || v.product_name_uz : v.product_name_uz
+    const sizeLabel = i18n.language.startsWith('ru') ? sizeLabelRu || v.size_label_uz : v.size_label_uz
+    const colorLabel = i18n.language.startsWith('ru') ? colorLabelRu || v.color_label_uz : v.color_label_uz
     addLine({
       variantId: v.id,
       productId: v.product,
       colorId: v.color,
       barcode: v.barcode ?? '',
-      name: v.product_name_uz,
-      sizeLabel: v.size_label_uz,
-      colorLabel: v.color_label_uz,
+      name: productName,
+      sizeLabel,
+      colorLabel,
       listPrice: String(v.list_price),
       stockQty: Number(v.stock_qty || 0),
       qty: 1,
@@ -864,7 +870,7 @@ export function PosPage({
                 <div className="mt-2 flex gap-2">
                   <button
                     type="button"
-                    className="touch-btn min-h-10 px-3 rounded-lg bg-emerald-700 border border-emerald-500 text-xs inline-flex items-center gap-1"
+                    className="touch-btn min-h-12 px-3 rounded-lg bg-emerald-700 border border-emerald-500 text-xs inline-flex items-center gap-1"
                     onClick={() => {
                       if (cart.length > 0) {
                         holdCurrentCart({ silent: true })
@@ -878,7 +884,7 @@ export function PosPage({
                   </button>
                   <button
                     type="button"
-                    className="touch-btn min-h-10 px-3 rounded-lg bg-red-900 border border-red-700 text-xs inline-flex items-center gap-1"
+                    className="touch-btn min-h-12 px-3 rounded-lg bg-red-900 border border-red-700 text-xs inline-flex items-center gap-1"
                     onClick={() => {
                       deleteSuspendedCart(session.id)
                       showToast('ok', t('pos.cartDeleted', { defaultValue: "Navbatdagi savat o'chirildi" }))
@@ -897,17 +903,7 @@ export function PosPage({
         )}
       </section>
 
-      {toast && (
-        <div
-          className={`mx-4 mt-3 px-3 py-2 rounded text-sm ${
-            toast.kind === 'err'
-              ? 'bg-red-900/80 border border-red-700 text-red-100'
-              : 'bg-emerald-900/80 border border-emerald-700 text-emerald-100'
-          }`}
-        >
-          {toast.msg}
-        </div>
-      )}
+      {toast && <ActionToast kind={toast.kind} message={toast.msg} onClose={() => setToast(null)} />}
       {banner && (
         <div className="mx-4 mt-2 px-3 py-2 rounded text-sm bg-red-950 border border-red-800 text-red-100">
           {banner}
@@ -987,9 +983,20 @@ export function PosPage({
                     className="touch-btn w-full min-h-12 text-left px-3 py-3 text-sm hover:bg-slate-800"
                     onClick={() => addVariantToCart(v, { clearSearch: true })}
                   >
-                    <div className="font-medium">{v.product_name_uz}</div>
+                    <div className="font-medium">
+                      {i18n.language.startsWith('ru')
+                        ? (v as PosVariant & { product_name_ru?: string }).product_name_ru || v.product_name_uz
+                        : v.product_name_uz}
+                    </div>
                     <div className="text-xs text-slate-400">
-                      {v.color_label_uz} / {v.size_label_uz} · {formatMoney(String(v.list_price))} ·{' '}
+                      {(i18n.language.startsWith('ru')
+                        ? (v as PosVariant & { color_label_ru?: string }).color_label_ru || v.color_label_uz
+                        : v.color_label_uz)}{' '}
+                      /{' '}
+                      {(i18n.language.startsWith('ru')
+                        ? (v as PosVariant & { size_label_ru?: string }).size_label_ru || v.size_label_uz
+                        : v.size_label_uz)}{' '}
+                      · {formatMoney(String(v.list_price))} ·{' '}
                       {t('admin.catalog.stock')}: {v.stock_qty}
                     </div>
                     {v.barcode ? <div className="text-xs text-slate-500 font-mono mt-0.5">{v.barcode}</div> : null}
@@ -1405,7 +1412,11 @@ export function PosPage({
                     {matrixRows.map((r) => (
                       <tr key={r.id} className="border-t border-slate-800">
                         <td className="p-3">
-                          <div className="font-medium">{r.size_label_uz}</div>
+                          <div className="font-medium">
+                            {i18n.language.startsWith('ru')
+                              ? (r as PosVariant & { size_label_ru?: string }).size_label_ru || r.size_label_uz
+                              : r.size_label_uz}
+                          </div>
                           {r.barcode ? <div className="text-xs text-slate-500 font-mono">{r.barcode}</div> : null}
                         </td>
                         <td className="p-3 text-right tabular-nums">{r.stock_qty}</td>

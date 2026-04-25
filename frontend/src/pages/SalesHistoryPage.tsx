@@ -49,7 +49,9 @@ export function SalesHistoryPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.sales.title')}</h2>
-      {actionToast && <ActionToast kind={actionToast.kind} message={actionToast.message} />}
+      {actionToast && (
+        <ActionToast kind={actionToast.kind} message={actionToast.message} onClose={() => setActionToast(null)} />
+      )}
       <div className="sticky top-0 z-10 flex flex-wrap gap-2 items-center rounded-xl border border-slate-800 bg-slate-950/95 p-2 backdrop-blur">
         <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={to} onChange={(e) => setTo(e.target.value)} />
@@ -90,7 +92,7 @@ export function SalesHistoryPage({
             setQuery('')
           }}
         >
-          {t('admin.common.reset', { defaultValue: 'Reset' })}
+          {t('admin.common.reset')}
         </button>
       </div>
       <p className="text-xs text-slate-400">{t('admin.sales.hint')}</p>
@@ -118,7 +120,7 @@ export function SalesHistoryPage({
                   <div className="inline-flex items-center gap-2">
                     <button
                       type="button"
-                      className="touch-btn min-h-10 px-3 rounded-xl bg-slate-800 border border-slate-600 text-sm font-medium"
+                      className="touch-btn min-h-12 px-3 rounded-xl bg-slate-800 border border-slate-600 text-sm font-medium"
                       onClick={async () => {
                         try {
                           await onReprint(s.id)
@@ -140,7 +142,7 @@ export function SalesHistoryPage({
                     {canVoid && s.status !== 'VOIDED' && (
                       <button
                         type="button"
-                        className="touch-btn min-h-10 px-3 rounded-xl bg-red-800 border border-red-600 text-sm font-medium"
+                        className="touch-btn min-h-12 px-3 rounded-xl bg-red-800 border border-red-600 text-sm font-medium"
                         onClick={() => setVoiding(s)}
                       >
                         {t('admin.sales.void')}

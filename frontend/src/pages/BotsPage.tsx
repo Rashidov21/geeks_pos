@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { IntegrationSettings } from '../api'
 import { useTranslation } from 'react-i18next'
+import { ActionToast } from '../components/ActionToast'
 
 export function BotsPage({
   settings,
@@ -13,7 +14,7 @@ export function BotsPage({
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null)
   const [form, setForm] = useState<IntegrationSettings>({
     telegram_bot_token: settings?.telegram_bot_token ?? '',
     telegram_chat_id: settings?.telegram_chat_id ?? '',
@@ -30,10 +31,10 @@ export function BotsPage({
     setToast(null)
     try {
       await fn()
-      setToast(ok)
+      setToast({ kind: 'ok', message: ok })
     } catch (e: unknown) {
       const code = (e as Error & { code?: string }).code
-      setToast(t(`err.${code || 'UNKNOWN'}`))
+      setToast({ kind: 'err', message: t(`err.${code || 'UNKNOWN'}`) })
     } finally {
       setBusy(false)
     }
@@ -42,7 +43,7 @@ export function BotsPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.bots.title')}</h2>
-      {toast && <div className="px-3 py-2 rounded border border-slate-700 bg-slate-900 text-sm">{toast}</div>}
+      {toast && <ActionToast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />}
       <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2 max-w-2xl">
         <h3 className="font-medium">{t('admin.bots.telegram')}</h3>
         <input

@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from django.utils import timezone
 
 from integrations.models import IntegrationSettings, NotificationQueue
@@ -30,6 +31,49 @@ def test_whatsapp_zreport_uses_whatsapp_markdown_format(monkeypatch):
     msg = str(captured["payload"]["message"])
     assert "*Z-Report*" in msg
     assert "- *Savdo summasi:*" in msg
+    assert "- *Sof tushum:*" in msg
+
+
+@pytest.mark.django_db
+def test_zreport_whatsapp_values_include_correct_net_and_shares(monkeypatch):
+    settings = IntegrationSettings.get_solo()
+    settings.telegram_bot_token = ""
+    settings.telegram_chat_id = ""
+    settings.whatsapp_provider = IntegrationSettings.WhatsAppProvider.GREEN_API
+    settings.whatsapp_api_base = "https://example.org"
+    settings.whatsapp_sender = "998901112233"
+    settings.greenapi_instance_id = "123"
+    settings.greenapi_api_token_instance = "tok"
+    settings.save()
+
+    monkeypatch.setattr(
+        "integrations.services.sales_metrics",
+        lambda **_: {
+            "date": "2026-04-25",
+            "sales_count": 4,
+            "sales_amount": Decimal("23200"),
+            "cash_total": Decimal("20200"),
+            "card_total": Decimal("0"),
+            "debt_total": Decimal("3000"),
+            "returned_count": 1,
+            "returned_total": Decimal("4000"),
+            "open_debt_total": Decimal("6200"),
+        },
+    )
+
+    captured = {}
+
+    def _fake_post(url, payload, headers=None):
+        captured["payload"] = payload
+        return True, "ok"
+
+    monkeypatch.setattr("integrations.services._post_json", _fake_post)
+    out = send_z_report_multichannel(lang="ru", from_date="2026-04-25", to_date="2026-04-25")
+    assert out["ok"] is True
+    msg = str(captured["payload"]["message"])
+    assert "19 200" in msg
+    assert "17%" in msg
+    assert "87%" in msg
 
 
 @pytest.mark.django_db
