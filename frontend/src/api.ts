@@ -250,6 +250,10 @@ export async function fetchLicenseStatus(): Promise<LicenseStatus> {
 
 export async function activateLicense(hardware_id: string, activation_key: string): Promise<LicenseStatus> {
   const csrf = await fetchCsrf()
+  const os =
+    typeof navigator !== 'undefined' && navigator.platform
+      ? String(navigator.platform).toLowerCase()
+      : 'unknown'
   const r = await fetch(`${API}/api/licensing/activate/`, {
     method: 'POST',
     credentials: 'include',
@@ -260,7 +264,7 @@ export async function activateLicense(hardware_id: string, activation_key: strin
     body: JSON.stringify({
       hardware_id,
       activation_key,
-      client_meta: { app_version: 'desktop-tauri' },
+      client_meta: { app_version: 'desktop-tauri', os },
     }),
   })
   if (!r.ok) throw await parseErrorResponse(r, 'LICENSE_ACTIVATE_FAILED')
@@ -609,6 +613,22 @@ export async function repayDebt(customerId: string, amount: string): Promise<Deb
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new AppError(j.code || 'DEBT_PAYMENT_FAILED', j.detail)
   return j as DebtRow[]
+}
+
+export async function updateDebtCustomer(
+  customerId: string,
+  patch: { name: string; phone_normalized: string },
+): Promise<{ id: string; name: string; phone_normalized: string }> {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/debt/customers/${customerId}/`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify(patch),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new AppError(j.code || 'UPDATE_CUSTOMER_FAILED', j.detail)
+  return j as { id: string; name: string; phone_normalized: string }
 }
 
 export type SaleHistoryRow = {

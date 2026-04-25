@@ -223,7 +223,17 @@ export function PosPage({
     })()
   }, [])
 
+  const shouldKeepCurrentFocus = useCallback(() => {
+    const el = document.activeElement as HTMLElement | null
+    if (!el) return false
+    const tag = el.tagName.toUpperCase()
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return true
+    return el.isContentEditable
+  }, [])
+
   const safeRefocus = useCallback(() => {
+    if (locked || numpadCtx || selectedLine || stockMatrix) return
+    if (shouldKeepCurrentFocus()) return
     requestAnimationFrame(() => {
       if (document.activeElement !== scanRef.current) {
         scanRef.current?.focus()
@@ -234,7 +244,7 @@ export function PosPage({
         scanRef.current?.focus()
       }
     }, 50)
-  }, [])
+  }, [locked, numpadCtx, selectedLine, shouldKeepCurrentFocus, stockMatrix])
 
   useEffect(() => {
     safeRefocus()
@@ -729,16 +739,21 @@ export function PosPage({
 
   useEffect(() => {
     if (locked) return
-    const refocus = () => safeRefocus()
-    window.addEventListener('pointerdown', refocus, { passive: true })
-    window.addEventListener('focus', refocus)
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest('input,select,textarea,button,[role="dialog"]')) return
+      safeRefocus()
+    }
+    const onFocus = () => safeRefocus()
+    window.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('focus', onFocus)
     const onVisibility = () => {
       if (document.visibilityState === 'visible') safeRefocus()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      window.removeEventListener('pointerdown', refocus)
-      window.removeEventListener('focus', refocus)
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [locked, safeRefocus])
@@ -973,7 +988,7 @@ export function PosPage({
           )}
           {searchResults.length > 0 && (
             <ul
-              className="max-h-52 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900/90 divide-y divide-slate-800"
+              className="max-h-52 overflow-y-auto kiosk-scrollbar rounded-xl border border-slate-700 bg-slate-900/90 divide-y divide-slate-800"
               role="listbox"
             >
               {searchResults.map((v) => (
@@ -1133,10 +1148,10 @@ export function PosPage({
             </div>
 
             <div className="space-y-2">
-              {paymentRows.map((r, idx) => (
+              {paymentRows.map((r) => (
                 <div
                   key={r.id}
-                  className={`grid grid-cols-[1fr_1fr_auto] gap-2 p-2 rounded border ${
+                  className={`grid grid-cols-[1fr_1fr_auto] gap-3 p-3 rounded border ${
                     activePayId === r.id ? 'border-emerald-500 bg-slate-950' : 'border-slate-700'
                   }`}
                   onClick={() => setActivePayId(r.id)}
@@ -1169,10 +1184,10 @@ export function PosPage({
                   </div>
                   <button
                     type="button"
-                    className="touch-btn min-h-12 min-w-12 rounded-xl bg-slate-800 border border-slate-600 text-sm font-bold"
+                    className="touch-btn min-h-12 min-w-14 rounded-xl bg-red-900/70 border border-red-700 text-base font-bold"
                     onClick={() => removePaymentRow(r.id)}
                     disabled={paymentRows.length === 1}
-                    title={`${t('pay.addRow')} #${idx + 1}`}
+                    aria-label={t('pay.removeRow', { defaultValue: 'Remove payment row' })}
                   >
                     ×
                   </button>
@@ -1215,7 +1230,13 @@ export function PosPage({
                   type="button"
                   onClick={() => setActiveMethod(m)}
                   className={`touch-btn min-h-12 px-5 rounded-xl text-sm font-medium border ${
-                    payMode === m ? 'bg-emerald-700 border-emerald-500' : 'bg-slate-800 border-slate-600'
+                    payMode === m
+                      ? m === 'CASH'
+                        ? 'bg-emerald-700 border-emerald-500'
+                        : m === 'CARD'
+                          ? 'bg-sky-700 border-sky-500'
+                          : 'bg-amber-700 border-amber-500'
+                      : 'bg-slate-800 border-slate-600'
                   }`}
                 >
                   {m === 'CASH' && `F1 ${t('pay.mode.cash')}`}
@@ -1399,7 +1420,7 @@ export function PosPage({
             {matrixBusy ? (
               <p className="text-sm text-slate-400 py-6">{t('admin.common.loading')}</p>
             ) : (
-              <div className="overflow-y-auto rounded-xl border border-slate-800">
+              <div className="overflow-y-auto kiosk-scrollbar rounded-xl border border-slate-800">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-950 text-slate-400 sticky top-0">
                     <tr>

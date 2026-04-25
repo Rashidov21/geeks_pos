@@ -582,7 +582,7 @@ export function CatalogPage({
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <div className="overflow-x-auto kiosk-scrollbar rounded-xl border border-slate-800">
               <table className="w-full text-sm min-w-[32rem]">
                 <thead className="bg-slate-950 text-slate-400">
                   <tr>
@@ -787,7 +787,7 @@ export function CatalogPage({
       <div className="flex justify-end gap-2">
         <button
           type="button"
-          className="px-3 py-1 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
+          className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-700 disabled:opacity-50"
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
         >
@@ -798,7 +798,7 @@ export function CatalogPage({
         </div>
         <button
           type="button"
-          className="px-3 py-1 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
+          className="touch-btn min-h-12 px-5 rounded-xl bg-slate-800 border border-slate-700 disabled:opacity-50"
           disabled={page >= maxPage}
           onClick={() => onPage(page + 1)}
         >
@@ -807,8 +807,16 @@ export function CatalogPage({
       </div>
 
       {quickAdjust && (
-        <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <div
+          className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setQuickAdjust(null)}
+        >
+          <div
+            className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold">{t('admin.catalog.quickAdjust')}</h3>
           <div className="text-sm text-slate-400">
             {i18n.language.startsWith('ru')
@@ -865,8 +873,16 @@ export function CatalogPage({
       )}
 
       {queueOpen && (
-        <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <div
+          className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setQueueOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded border border-slate-700 bg-slate-900 p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold">{t('admin.catalog.printQueue')}</h3>
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-400">{t('admin.catalog.labelSize')}</label>
@@ -879,7 +895,7 @@ export function CatalogPage({
                 <option value="58mm">58mm</option>
               </select>
             </div>
-            <div className="max-h-72 overflow-auto rounded border border-slate-800">
+            <div className="max-h-72 overflow-auto kiosk-scrollbar rounded border border-slate-800">
               <table className="w-full text-sm">
                 <thead className="bg-slate-950 text-slate-400">
                   <tr>
@@ -902,7 +918,7 @@ export function CatalogPage({
                         <td className="p-2">{v.barcode}</td>
                         <td className="p-2 text-right">
                           <input
-                            className="touch-btn min-h-12 w-20 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-right"
+                            className="touch-btn min-h-12 w-28 px-3 py-2 rounded bg-slate-900 border border-slate-700 text-right text-base"
                             value={String(copies)}
                             onChange={(e) =>
                               setQueueMap((p) => ({ ...p, [variantId]: Math.max(1, Number(e.target.value || '1')) }))
@@ -957,8 +973,16 @@ export function CatalogPage({
       )}
 
       {editing && (
-        <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <div
+          className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setEditing(null)}
+        >
+          <div
+            className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold">{t('admin.catalog.editVariant')}</h3>
             <div className="text-sm text-slate-400">
               {i18n.language.startsWith('ru')
@@ -1011,8 +1035,16 @@ export function CatalogPage({
         </div>
       )}
       {numpadOpen && (
-        <div className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <div
+          className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setNumpadOpen(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
             <TouchNumpad
               className="rounded-xl border border-slate-800 bg-slate-950 p-3"
               value={numpadValue()}

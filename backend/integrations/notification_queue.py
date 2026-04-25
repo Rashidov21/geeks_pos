@@ -10,6 +10,17 @@ from .models import IntegrationSettings, NotificationQueue
 MAX_ATTEMPTS = 10
 
 
+def _sync_event_type(kind: str) -> str:
+    if kind in (
+        NotificationQueue.Kind.Z_REPORT_TELEGRAM,
+        NotificationQueue.Kind.Z_REPORT_WHATSAPP,
+    ):
+        return "z_report_sync"
+    if kind == NotificationQueue.Kind.WHATSAPP_DEBT_REMINDER:
+        return "debt_reminder_sync"
+    return "integration_sync"
+
+
 def enqueue(kind: str, payload: dict[str, Any]) -> NotificationQueue:
     return NotificationQueue.objects.create(
         kind=kind,
@@ -63,6 +74,15 @@ def flush_pending(*, limit: int = 50) -> dict[str, Any]:
                     phone=str(row.payload.get("phone") or ""),
                     customer_name=str(row.payload.get("customer_name") or ""),
                     amount=str(row.payload.get("amount") or "0"),
+                    lang=str(row.payload.get("lang") or "uz"),
+                    debt_items=list(row.payload.get("debt_items") or []),
+                    reminder_kind=str(row.payload.get("reminder_kind") or "debt_reminder"),
+                    payment_amount=str(row.payload.get("payment_amount") or "0"),
+                    payment_time=str(row.payload.get("payment_time") or "-"),
+                    is_partial=bool(row.payload.get("is_partial") or False),
+                    total_remaining=str(row.payload.get("total_remaining") or "0"),
+                    store_name=str(row.payload.get("store_name") or ""),
+                    store_phone=str(row.payload.get("store_phone") or ""),
                 )
             else:
                 raise ValueError(f"Unknown queue kind: {row.kind}")
@@ -84,9 +104,10 @@ def flush_pending(*, limit: int = 50) -> dict[str, Any]:
             if key and hw:
                 event = {
                     "client_event_id": str(row.id),
-                    "event_type": str(row.kind).lower(),
+                    "event_type": _sync_event_type(str(row.kind)),
                     "payload": row.payload,
                     "client_timestamp": timezone.now().isoformat(),
+                    "device_info": "POS-Windows",
                 }
                 remote_sync_report(activation_key=key, hardware_id=hw, events=[event])
         except Exception:

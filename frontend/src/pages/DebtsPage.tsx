@@ -9,13 +9,18 @@ export function DebtsPage({
   debts,
   onRepay,
   onSendReminder,
+  onUpdateCustomer,
 }: {
   debts: DebtRow[]
   onRepay: (customerId: string, amount: string) => Promise<void>
   onSendReminder: (customerId: string, amount: string) => Promise<void>
+  onUpdateCustomer: (customerId: string, name: string, phone: string) => Promise<void>
 }) {
   const { t } = useTranslation()
   const [amountByCustomer, setAmountByCustomer] = useState<Record<string, string>>({})
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editPhone, setEditPhone] = useState('')
   const [busyCustomerId, setBusyCustomerId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null)
   const totals = useMemo(() => {
@@ -52,8 +57,30 @@ export function DebtsPage({
               const count = debts.filter((d) => d.customer === customerId).length
               return (
                 <tr key={customerId} className="border-t border-slate-800">
-                  <td className="p-2">{row.customer_name}</td>
-                  <td className="p-2">{row.customer_phone}</td>
+                  <td className="p-2">
+                    {editingCustomerId === customerId ? (
+                      <input
+                        className="touch-btn min-h-12 w-full px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder={t('admin.debts.customer')}
+                      />
+                    ) : (
+                      row.customer_name
+                    )}
+                  </td>
+                  <td className="p-2">
+                    {editingCustomerId === customerId ? (
+                      <input
+                        className="touch-btn min-h-12 w-full px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm"
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value.replace(/\D/g, ''))}
+                        placeholder="998901112233"
+                      />
+                    ) : (
+                      row.customer_phone
+                    )}
+                  </td>
                   <td className="p-2">{new Date(row.created_at).toLocaleDateString()}</td>
                   <td className="p-2">
                     {row.due_date ? (
@@ -99,25 +126,81 @@ export function DebtsPage({
                     </div>
                   </td>
                   <td className="p-2 text-right">
-                    <button
-                      type="button"
-                      disabled={busyCustomerId === customerId}
-                      className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600 text-sm"
-                      onClick={async () => {
-                        setBusyCustomerId(customerId)
-                        try {
-                          await onSendReminder(customerId, total.toFixed(0))
-                          setToast({ kind: 'ok', message: t('admin.debts.reminderSuccess') })
-                        } catch (e: unknown) {
-                          const code = (e as Error & { code?: string }).code
-                          setToast({ kind: 'err', message: t(`err.${code || 'WHATSAPP_SEND_FAILED'}`) })
-                        } finally {
-                          setBusyCustomerId(null)
-                        }
-                      }}
-                    >
-                      {t('admin.debts.reminder')}
-                    </button>
+                    <div className="inline-flex gap-2">
+                      {editingCustomerId === customerId ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busyCustomerId === customerId || !editName.trim() || !editPhone.trim()}
+                            className="touch-btn min-h-12 px-4 rounded-xl bg-emerald-700 border border-emerald-500 text-sm font-medium disabled:opacity-50"
+                            onClick={async () => {
+                              if (!/^\d{9,15}$/.test(editPhone.trim())) {
+                                setToast({
+                                  kind: 'err',
+                                  message: "Telefon raqami davlat kodi bilan, '+'siz kiritilishi kerak (masalan: 998901112233).",
+                                })
+                                return
+                              }
+                              setBusyCustomerId(customerId)
+                              try {
+                                await onUpdateCustomer(customerId, editName.trim(), editPhone.trim())
+                                setToast({ kind: 'ok', message: t('admin.common.save') })
+                                setEditingCustomerId(null)
+                              } catch (e: unknown) {
+                                const code = (e as Error & { code?: string }).code
+                                setToast({ kind: 'err', message: t(`err.${code || 'VALIDATION_ERROR'}`) })
+                              } finally {
+                                setBusyCustomerId(null)
+                              }
+                            }}
+                          >
+                            {t('admin.common.save')}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyCustomerId === customerId}
+                            className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600 text-sm"
+                            onClick={() => setEditingCustomerId(null)}
+                          >
+                            {t('admin.common.cancel')}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busyCustomerId === customerId}
+                            className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600 text-sm hidden"
+                            onClick={async () => {
+                              setBusyCustomerId(customerId)
+                              try {
+                                await onSendReminder(customerId, total.toFixed(0))
+                                setToast({ kind: 'ok', message: t('admin.debts.reminderSuccess') })
+                              } catch (e: unknown) {
+                                const code = (e as Error & { code?: string }).code
+                                setToast({ kind: 'err', message: t(`err.${code || 'WHATSAPP_SEND_FAILED'}`) })
+                              } finally {
+                                setBusyCustomerId(null)
+                              }
+                            }}
+                          >
+                            {t('admin.debts.reminder')}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyCustomerId === customerId}
+                            className="touch-btn min-h-12 px-4 rounded-xl bg-indigo-700 border border-indigo-500 text-sm"
+                            onClick={() => {
+                              setEditingCustomerId(customerId)
+                              setEditName(row.customer_name)
+                              setEditPhone(row.customer_phone)
+                            }}
+                          >
+                            {t('admin.catalog.edit')}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )

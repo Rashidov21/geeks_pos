@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -37,6 +37,65 @@ def _decode_json_body(raw: bytes) -> tuple[bool, dict[str, Any] | str]:
     if not isinstance(data, dict):
         return False, "License server returned non-object JSON"
     return True, data
+
+
+ADMIN_LICENSES_PAGE_LIMIT = 1000
+
+
+def remote_fetch_admin_licenses_list() -> tuple[bool, list[dict[str, Any]] | str, int]:
+    """
+    GET /api/v1/admin/licenses/?limit=1000&offset=0 (and follow ``next``) using the same
+    Token + X-CLIENT-KEY headers as other license server calls.
+    """
+    base = _base_url()
+    if not base:
+        return False, "LICENSE_API_BASE_URL is not configured", 0
+    query = urlencode({"limit": ADMIN_LICENSES_PAGE_LIMIT, "offset": 0})
+    url: str | None = urljoin(base, f"api/v1/admin/licenses/?{query}")
+    aggregated: list[dict[str, Any]] = []
+    pages = 0
+    max_pages = 200
+    while url:
+        pages += 1
+        if pages > max_pages:
+            return False, "License server admin list pagination exceeded safe limit", 502
+        req = Request(url, method="GET")
+        for k, v in _headers(include_json=False).items():
+            req.add_header(k, v)
+        try:
+            with urlopen(req, timeout=30) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                ok, data = _decode_json_body(resp.read() or b"")
+                if not ok:
+                    return False, data if isinstance(data, str) else "Invalid JSON from license server", status
+                if not isinstance(data, dict):
+                    return False, "License server returned non-object JSON", status
+                results = data.get("results")
+                if not isinstance(results, list):
+                    return False, "Invalid license server payload (results)", status
+                aggregated.extend([r for r in results if isinstance(r, dict)])
+                nxt = data.get("next")
+                if nxt and isinstance(nxt, str) and nxt.strip():
+                    nxt = nxt.strip()
+                    if nxt.startswith("http://") or nxt.startswith("https://"):
+                        url = nxt
+                    else:
+                        url = urljoin(base, nxt.lstrip("/"))
+                    base_host = urlparse(base).netloc
+                    if urlparse(url).netloc and urlparse(url).netloc != base_host:
+                        return False, "License server returned unexpected next URL", status
+                else:
+                    url = None
+        except HTTPError as e:
+            dec_ok, data = _decode_json_body(e.read() or b"")
+            if dec_ok and isinstance(data, dict):
+                return False, data, int(e.code)
+            return False, f"HTTP {e.code}", int(e.code)
+        except URLError as e:
+            return False, str(e.reason or e), 0
+        except OSError as e:
+            return False, str(e), 0
+    return True, aggregated, 200
 
 
 def remote_activate(

@@ -272,12 +272,14 @@ export function SettingsPage({
       )}
       {activeTab === 'store' && (
         <>
+          <div> 
           <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 inline-flex items-center gap-2 text-slate-200">
             <Building2 className="h-5 w-5 text-emerald-400" />
             <span className="font-medium">{t('admin.settings.tabStore')}</span>
           </div>
+          </div>
           <form
-            className="space-y-4 max-w-4xl"
+            className="space-y-4"
             onSubmit={async (e) => {
               e.preventDefault()
               setBusy(true)
@@ -295,6 +297,8 @@ export function SettingsPage({
               }
             }}
           >
+            <div className="grid gap-4 xl:grid-cols-3 items-start">
+              <div className="space-y-4 xl:col-span-2">
             <div className={sectionCardCls}>
               <div className="inline-flex items-center gap-2 text-slate-200">
                 <Cog className="h-4 w-4 text-emerald-400" />
@@ -328,17 +332,50 @@ export function SettingsPage({
                     placeholder={t('admin.settings.addressExample')}
                   />
                 </div>
-                <div className="md:col-span-2 space-y-1">
+                <div className="md:col-span-2 space-y-2">
                   <label className="block text-xs text-slate-400">{t('admin.settings.logoHint')}</label>
-                  {settings?.logo_url && (
-                    <img src={settings.logo_url} alt="logo" className="h-20 object-contain bg-white p-2 rounded-xl border border-slate-700" />
-                  )}
-                  <input
-                    className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700"
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
-                  />
+                  <div className="rounded-2xl border border-slate-700 bg-slate-950/50 p-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {settings?.logo_url && !logo ? (
+                        <img
+                          src={settings.logo_url}
+                          alt="logo"
+                          className="h-20 w-20 object-contain bg-white p-2 rounded-xl border border-slate-700"
+                        />
+                      ) : (
+                        <div className="h-20 w-20 rounded-xl border border-dashed border-slate-600 bg-slate-900 grid place-items-center text-[10px] text-slate-500">
+                          LOGO
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-[220px] space-y-2">
+                        <p className="text-xs text-slate-400">
+                          {logo?.name || t('admin.settings.logoHint')}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <label className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600 cursor-pointer inline-flex items-center">
+                            {logo
+                              ? t('admin.common.change', { defaultValue: 'Change' })
+                              : t('admin.common.upload', { defaultValue: 'Upload logo' })}
+                            <input
+                              className="hidden"
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
+                            />
+                          </label>
+                          {logo && (
+                            <button
+                              type="button"
+                              className="touch-btn min-h-12 px-4 rounded-xl bg-slate-900 border border-slate-700"
+                              onClick={() => setLogo(null)}
+                            >
+                              {t('admin.common.remove', { defaultValue: 'Remove' })}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="md:col-span-2 space-y-1">
                   <label className="block text-xs text-slate-400">{t('admin.settings.footer')}</label>
@@ -380,7 +417,7 @@ export function SettingsPage({
               </ul>
             </div>
 
-            <div className={`${sectionCardCls} max-w-4xl`}>
+            <div className={sectionCardCls}>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="font-semibold text-slate-100 inline-flex items-center gap-2">
                   <ScanLine className="h-4 w-4" />
@@ -457,6 +494,8 @@ export function SettingsPage({
                     <option value="58mm">58mm</option>
                     <option value="80mm">80mm</option>
                   </select>
+                  
+                  <div className="flex justify-between pt-2">
                   <label className="flex items-center gap-3 min-h-12 text-base">
                     <input
                       type="checkbox"
@@ -466,7 +505,6 @@ export function SettingsPage({
                     />
                     {t('admin.settings.autoPrintOnSale')}
                   </label>
-                  <div className="flex justify-end pt-2">
                     <button
                       type="button"
                       className="touch-btn min-h-12 px-6 rounded-xl bg-emerald-700 border border-emerald-500 font-medium"
@@ -607,8 +645,10 @@ export function SettingsPage({
                 </div>
               )}
             </div>
+              </div>
+              <div className="space-y-4 xl:sticky xl:top-4">
             <div className={sectionCardCls}>
-            <label className="text-sm flex items-center gap-2">
+            <label className="text-sm flex items-center gap-2 hidden">
               <input
                 type="checkbox"
                 checked={form.transliterate_uz}
@@ -636,6 +676,45 @@ export function SettingsPage({
             >
               {busy ? t('admin.common.saving') : t('admin.settings.saveSettings')}
             </button>
+            </div>
+              <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 text-xs text-slate-400">
+                {t('admin.settings.headerHint')}
+              </div>
+              <div className="flex flex-wrap gap-2 items-center rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+        <HardDriveDownload className="h-5 w-5 text-emerald-400 shrink-0" />
+        <div className="mr-auto">
+          <div className="font-medium text-slate-200">{t('admin.settings.backupNow')}</div>
+          <div className="text-xs text-slate-400">{t('admin.settings.backupHint')}</div>
+        </div>
+        <button
+          type="button"
+          className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
+          disabled={backupBusy}
+          onClick={async () => {
+            setBackupBusy(true)
+            try {
+              const res = await onBackupNow()
+              setBackupMsg(res.backup_path)
+              setActionToast({
+                kind: 'ok',
+                message: `${t('admin.settings.backupSuccess')}: ${shortBackupName(res.backup_path)}`,
+              })
+            } catch (e: unknown) {
+              const code = (e as Error & { code?: string }).code
+              const message = t(`err.${code || 'BACKUP_FAILED'}`, {
+                defaultValue: t('err.BACKUP_FAILED'),
+              })
+              setActionToast({ kind: 'err', message: `${message}. ${t('admin.settings.backupRetry', { defaultValue: 'Qayta urinib ko‘ring.' })}` })
+            } finally {
+              setBackupBusy(false)
+            }
+          }}
+        >
+          {backupBusy ? t('admin.settings.backingUp') : t('admin.settings.backupNow')}
+        </button>
+        {backupMsg && <span className="text-xs text-slate-400">{backupMsg}</span>}
+      </div>
+              </div>
             </div>
           </form>
         </>
@@ -871,7 +950,7 @@ export function SettingsPage({
                         type="password"
                         inputMode="numeric"
                         maxLength={4}
-                        className="touch-btn min-h-12 w-24 px-2 py-1 rounded bg-slate-950 border border-slate-700"
+                        className="touch-btn min-h-12 w-32 px-3 py-2 rounded bg-slate-950 border border-slate-700 text-base"
                         value={pinDrafts[u.username] || ''}
                         onChange={(e) =>
                           setPinDrafts((p) => ({
@@ -919,40 +998,7 @@ export function SettingsPage({
           </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-2 items-center rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-        <HardDriveDownload className="h-5 w-5 text-emerald-400 shrink-0" />
-        <div className="mr-auto">
-          <div className="font-medium text-slate-200">{t('admin.settings.backupNow')}</div>
-          <div className="text-xs text-slate-400">{t('admin.settings.backupHint')}</div>
-        </div>
-        <button
-          type="button"
-          className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-800 border border-slate-700 disabled:opacity-50"
-          disabled={backupBusy}
-          onClick={async () => {
-            setBackupBusy(true)
-            try {
-              const res = await onBackupNow()
-              setBackupMsg(res.backup_path)
-              setActionToast({
-                kind: 'ok',
-                message: `${t('admin.settings.backupSuccess')}: ${shortBackupName(res.backup_path)}`,
-              })
-            } catch (e: unknown) {
-              const code = (e as Error & { code?: string }).code
-              const message = t(`err.${code || 'BACKUP_FAILED'}`, {
-                defaultValue: t('err.BACKUP_FAILED'),
-              })
-              setActionToast({ kind: 'err', message: `${message}. ${t('admin.settings.backupRetry', { defaultValue: 'Qayta urinib ko‘ring.' })}` })
-            } finally {
-              setBackupBusy(false)
-            }
-          }}
-        >
-          {backupBusy ? t('admin.settings.backingUp') : t('admin.settings.backupNow')}
-        </button>
-        {backupMsg && <span className="text-xs text-slate-400">{backupMsg}</span>}
-      </div>
+      
 
       {canManageInventory && (
         <div className="pt-6 border-t border-slate-800 space-y-3">
@@ -1003,7 +1049,7 @@ export function SettingsPage({
               {t('admin.settings.session')}: {stocktake.id.slice(0, 8)} | {t('admin.sales.status')}:{' '}
               {t(`status.${stocktake.status}`, { defaultValue: stocktake.status })}
             </div>
-            <div className="max-h-72 overflow-auto rounded border border-slate-800">
+            <div className="max-h-72 overflow-auto kiosk-scrollbar rounded border border-slate-800">
               <table className="w-full text-sm">
                 <thead className="bg-slate-900 text-slate-400">
                   <tr>
@@ -1030,7 +1076,7 @@ export function SettingsPage({
                       <td className="p-2 text-right">
                         <div className="inline-flex gap-2">
                           <input
-                            className="touch-btn min-h-12 px-2 py-1 rounded bg-slate-950 border border-slate-700 w-20"
+                            className="touch-btn min-h-12 px-3 py-2 rounded bg-slate-950 border border-slate-700 w-32 text-base"
                             value={countByVariant[ln.variant] ?? ''}
                             onChange={(e) =>
                               setCountByVariant((p) => ({ ...p, [ln.variant]: e.target.value }))

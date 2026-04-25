@@ -44,56 +44,7 @@ export function DashboardPage({
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.dashboard.title')}</h2>
       {toast && <ActionToast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="rounded border border-slate-700 bg-slate-900 p-4">
-          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" />
-            {t('license.title', { defaultValue: 'License' })}
-          </div>
-          <div
-            className={`text-lg mt-1 font-medium ${
-              licenseStatus?.valid === false ? 'text-red-300' : 'text-emerald-300'
-            }`}
-          >
-            {licenseStatus?.valid === false ? t('status.BLOCKED') : t('status.ACTIVE')}
-          </div>
-          {licenseStatus?.expires_at && (
-            <div className="text-xs text-slate-500 mt-1">
-              {t('license.expiresLabel', { defaultValue: 'Expires' })}: {licenseStatus.expires_at}
-            </div>
-          )}
-        </div>
-        <div className="rounded border border-slate-700 bg-slate-900 p-4 md:col-span-2">
-          <div className="text-sm text-slate-400 mb-2">{t('admin.dashboard.quickActions', { defaultValue: 'Quick Actions' })}</div>
-          <button
-            type="button"
-            disabled={busy}
-            className="touch-btn min-h-12 px-5 py-3 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 text-sm font-medium"
-            onClick={async () => {
-              setBusy(true)
-              try {
-                const out = (await onSendZReport()) as {
-                  ok?: boolean
-                  channel_results?: Partial<Record<'telegram' | 'whatsapp', { ok: boolean }>>
-                }
-                const tg = out.channel_results?.telegram?.ok
-                const wa = out.channel_results?.whatsapp?.ok
-                const bothOk = tg && wa
-                const msg = bothOk ? t('admin.bots.zReportSentBoth') : tg ? t('admin.bots.zReportSentTelegram') : wa ? t('admin.bots.zReportSentWhatsapp') : t('admin.bots.zReportSent')
-                setToast({ kind: 'ok', message: msg })
-              } catch (e: unknown) {
-                const code = (e as Error & { code?: string }).code
-                setToast({ kind: 'err', message: t(`err.${code || 'ZREPORT_SEND_FAILED'}`) })
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            <ReportIcon className="h-4 w-4 inline mr-2" />
-            {t('admin.bots.sendZReport')}
-          </button>
-        </div>
-      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
           <div className="text-sm text-slate-400 inline-flex items-center gap-2">
@@ -157,6 +108,9 @@ export function DashboardPage({
                 <span>{p.qty}</span>
               </li>
             ))}
+            {(summary?.top_products ?? []).length === 0 && (
+              <li className="py-4 text-center text-slate-400">{t('admin.sales.empty')}</li>
+            )}
           </ul>
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-3">
@@ -170,6 +124,9 @@ export function DashboardPage({
                 <span>{p.qty}</span>
               </li>
             ))}
+            {(summary?.low_products ?? []).length === 0 && (
+              <li className="py-4 text-center text-slate-400">{t('admin.sales.empty')}</li>
+            )}
           </ul>
         </div>
       </div>
@@ -236,18 +193,68 @@ export function DashboardPage({
           <div className="text-2xl mt-1">{formatMoney(totals?.total_discounts)}</div>
         </div>
       </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            {t('license.title', { defaultValue: 'License' })}
+          </div>
+          <div
+            className={`text-lg mt-1 font-medium ${
+              licenseStatus?.valid === false ? 'text-red-300' : 'text-emerald-300'
+            }`}
+          >
+            {licenseStatus?.valid === false ? t('status.BLOCKED') : t('status.ACTIVE')}
+          </div>
+          {licenseStatus?.expires_at && (
+            <div className="text-xs text-slate-500 mt-1">
+              {t('license.expiresLabel', { defaultValue: 'Expires' })}: {licenseStatus.expires_at}
+            </div>
+          )}
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4 md:col-span-2">
+          <div className="text-sm text-slate-400 mb-2">{t('admin.dashboard.quickActions', { defaultValue: 'Quick Actions' })}</div>
+          <button
+            type="button"
+            disabled={busy}
+            className="touch-btn min-h-12 px-5 py-3 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 text-sm font-medium"
+            onClick={async () => {
+              setBusy(true)
+              try {
+                const out = (await onSendZReport()) as {
+                  ok?: boolean
+                  channel_results?: Partial<Record<'telegram' | 'whatsapp', { ok: boolean }>>
+                }
+                const tg = out.channel_results?.telegram?.ok
+                const wa = out.channel_results?.whatsapp?.ok
+                const bothOk = tg && wa
+                const msg = bothOk ? t('admin.bots.zReportSentBoth') : tg ? t('admin.bots.zReportSentTelegram') : wa ? t('admin.bots.zReportSentWhatsapp') : t('admin.bots.zReportSent')
+                setToast({ kind: 'ok', message: msg })
+              } catch (e: unknown) {
+                const code = (e as Error & { code?: string }).code
+                setToast({ kind: 'err', message: t(`err.${code || 'ZREPORT_SEND_FAILED'}`) })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <ReportIcon className="h-4 w-4 inline mr-2" />
+            {t('admin.bots.sendZReport')}
+          </button>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
         <label className="text-xs text-slate-400">
           {t('admin.dashboard.year', { defaultValue: 'Yil' })}
-          <input className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2" value={filter.year || ''} onChange={(e) => onFilter(undefined, undefined, e.target.value)} placeholder="2026" />
+          <input className="touch-btn mt-1 w-full min-h-12 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-base" value={filter.year || ''} onChange={(e) => onFilter(undefined, undefined, e.target.value)} placeholder="2026" />
         </label>
         <label className="text-xs text-slate-400">
           {t('admin.common.from')}
-          <input type="date" className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2" value={filter.from || ''} onChange={(e) => onFilter(e.target.value, filter.to, undefined)} />
+          <input type="date" className="touch-btn mt-1 w-full min-h-12 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-base" value={filter.from || ''} onChange={(e) => onFilter(e.target.value, filter.to, undefined)} />
         </label>
         <label className="text-xs text-slate-400">
           {t('admin.common.to')}
-          <input type="date" className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2" value={filter.to || ''} onChange={(e) => onFilter(filter.from, e.target.value, undefined)} />
+          <input type="date" className="touch-btn mt-1 w-full min-h-12 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-base" value={filter.to || ''} onChange={(e) => onFilter(filter.from, e.target.value, undefined)} />
         </label>
         <button
           type="button"

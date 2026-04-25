@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.authentication import SessionAuthentication
@@ -7,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import IsAdminOrOwner
-from debt.models import Customer
+from debt.models import Customer, Debt
 
 from .models import IntegrationSettings
 from .serializers import IntegrationSettingsSerializer
@@ -69,11 +70,37 @@ class WhatsAppDebtReminderView(APIView):
         except Customer.DoesNotExist:
             return Response({"code": "CUSTOMER_NOT_FOUND", "detail": "Customer not found"}, status=404)
         amount = request.data.get("amount") or "0"
+        selected_lang = _request_lang(request)
+        open_rows = (
+            Debt.objects.filter(customer=customer, status=Debt.Status.OPEN)
+            .select_related("originating_sale")
+            .order_by("due_date", "created_at")[:10]
+        )
+        debt_items: list[dict[str, str]] = []
+        for d in open_rows:
+            sale_no = (d.originating_sale.public_sale_no or str(d.originating_sale_id)[:8]) if d.originating_sale_id else "-"
+            sale_time = (
+                timezone.localtime(d.originating_sale.completed_at).strftime("%Y-%m-%d %H:%M")
+                if d.originating_sale_id and d.originating_sale.completed_at
+                else "-"
+            )
+            debt_items.append(
+                {
+                    "sale_no": sale_no,
+                    "total_amount": str(d.total_amount),
+                    "remaining_amount": str(d.remaining_amount),
+                    "sale_time": sale_time,
+                    "debt_created_at": timezone.localtime(d.created_at).strftime("%Y-%m-%d %H:%M"),
+                    "due_date": d.due_date.isoformat() if d.due_date else "-",
+                }
+            )
         try:
             out = send_whatsapp_reminder(
                 phone=customer.phone_normalized,
                 customer_name=customer.name,
                 amount=str(amount),
+                lang=selected_lang,
+                debt_items=debt_items,
             )
             return Response(out)
         except ValueError as e:

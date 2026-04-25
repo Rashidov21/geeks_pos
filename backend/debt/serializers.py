@@ -4,6 +4,16 @@ from .models import Customer, Debt
 
 
 class CustomerSerializer(serializers.ModelSerializer):
+    def validate_phone_normalized(self, value: str) -> str:
+        raw = (value or "").strip()
+        if raw.startswith("+"):
+            raise serializers.ValidationError("Phone must be entered without '+' and with country code (example: 998901112233).")
+        if not raw.isdigit():
+            raise serializers.ValidationError("Phone must contain digits only and include country code.")
+        if len(raw) < 9 or len(raw) > 15:
+            raise serializers.ValidationError("Phone length is invalid. Include country code, without '+'.")
+        return raw
+
     class Meta:
         model = Customer
         fields = ["id", "name", "phone_normalized", "note", "created_at"]

@@ -4,6 +4,7 @@ from urllib.request import Request, urlopen
 
 from django.utils import timezone
 
+from printing.models import StoreSettings
 from reports.services import sales_metrics, q_money
 
 from .models import IntegrationSettings, NotificationQueue
@@ -201,10 +202,117 @@ def _send_whatsapp_debt_reminder_now(
     phone: str,
     customer_name: str,
     amount: str,
+    lang: str = "uz",
+    debt_items: list[dict] | None = None,
+    reminder_kind: str = "debt_reminder",
+    payment_amount: str = "0",
+    payment_time: str = "-",
+    is_partial: bool = False,
+    total_remaining: str = "0",
+    store_name: str = "",
+    store_phone: str = "",
 ):
     if not settings.whatsapp_api_base:
         raise ValueError("WhatsApp settings are incomplete")
-    message = f"Assalomu alaykum {customer_name}, qarzingiz: {amount}. Iltimos to'lovni amalga oshiring."
+    selected_lang = _norm_lang(lang)
+    rows = debt_items or []
+    if selected_lang == "ru":
+        if reminder_kind == "repayment_update":
+            lines = [
+                f"Здравствуйте, {customer_name}.",
+                "Платёж по задолженности принят.",
+                f"Сумма платежа: {payment_amount}",
+                f"Время платежа: {payment_time}",
+                (
+                    f"Статус: частичное погашение. Остаток долга: {total_remaining}"
+                    if is_partial
+                    else "Статус: задолженность погашена полностью."
+                ),
+                "",
+            ]
+        else:
+            lines = [
+                f"Здравствуйте, {customer_name}.",
+                "Напоминание о задолженности по вашему магазину.",
+                f"Сумма долга к оплате: {amount}",
+                "",
+            ]
+        if rows:
+            lines.append("Детали по долгам:")
+            for idx, row in enumerate(rows, start=1):
+                lines.extend(
+                    [
+                        f"{idx}) Продажа: {row.get('sale_no') or '-'}",
+                        f"   Сумма покупки: {row.get('total_amount') or '-'}",
+                        f"   Погашено сейчас: {row.get('paid_now') or '-'}",
+                        f"   Осталось к оплате: {row.get('remaining_amount') or '-'}",
+                        f"   Время покупки: {row.get('sale_time') or '-'}",
+                        f"   Дата выдачи долга: {row.get('debt_created_at') or '-'}",
+                        f"   Срок оплаты: {row.get('due_date') or '-'}",
+                    ]
+                )
+        lines.append("")
+        lines.append(
+            "Спасибо за оплату!"
+            if reminder_kind == "repayment_update"
+            else "Пожалуйста, внесите оплату в ближайшее время. Спасибо!"
+        )
+        if store_name or store_phone:
+            lines.append("")
+            lines.append("Контакты магазина:")
+            if store_name:
+                lines.append(f"- Магазин: {store_name}")
+            if store_phone:
+                lines.append(f"- Телефон: {store_phone}")
+    else:
+        if reminder_kind == "repayment_update":
+            lines = [
+                f"Assalomu alaykum, {customer_name}.",
+                "Qarz bo'yicha to'lov qabul qilindi.",
+                f"To'langan summa: {payment_amount}",
+                f"To'lov vaqti: {payment_time}",
+                (
+                    f"Holat: qisman yopildi. Qolgan qarz: {total_remaining}"
+                    if is_partial
+                    else "Holat: qarz to'liq yopildi."
+                ),
+                "",
+            ]
+        else:
+            lines = [
+                f"Assalomu alaykum, {customer_name}.",
+                "Do'koningiz bo'yicha qarz eslatmasi.",
+                f"To'lanishi kerak bo'lgan qarz summasi: {amount}",
+                "",
+            ]
+        if rows:
+            lines.append("Qarz tafsilotlari:")
+            for idx, row in enumerate(rows, start=1):
+                lines.extend(
+                    [
+                        f"{idx}) Savdo: {row.get('sale_no') or '-'}",
+                        f"   Xarid summasi: {row.get('total_amount') or '-'}",
+                        f"   Hozir yopilgan summa: {row.get('paid_now') or '-'}",
+                        f"   Qolgan qarz: {row.get('remaining_amount') or '-'}",
+                        f"   Xarid vaqti: {row.get('sale_time') or '-'}",
+                        f"   Qarz berilgan vaqti: {row.get('debt_created_at') or '-'}",
+                        f"   To'lov muddati: {row.get('due_date') or '-'}",
+                    ]
+                )
+        lines.append("")
+        lines.append(
+            "To'lov uchun rahmat!"
+            if reminder_kind == "repayment_update"
+            else "Iltimos, qulay vaqtda to'lovni amalga oshiring. Rahmat!"
+        )
+        if store_name or store_phone:
+            lines.append("")
+            lines.append("Do'kon aloqa ma'lumotlari:")
+            if store_name:
+                lines.append(f"- Do'kon: {store_name}")
+            if store_phone:
+                lines.append(f"- Telefon: {store_phone}")
+    message = "\n".join(lines)
     if settings.whatsapp_provider == IntegrationSettings.WhatsAppProvider.GREEN_API:
         if not settings.greenapi_instance_id or not settings.greenapi_api_token_instance:
             raise ValueError("GreenAPI settings are incomplete")
@@ -308,13 +416,42 @@ def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None
     return {"ok": ok, "details": details, "channel_results": channel_results, "lang": selected_lang}
 
 
-def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
+def send_whatsapp_reminder(
+    *,
+    phone: str,
+    customer_name: str,
+    amount: str,
+    lang: str = "uz",
+    debt_items: list[dict] | None = None,
+    reminder_kind: str = "debt_reminder",
+    payment_amount: str = "0",
+    payment_time: str = "-",
+    is_partial: bool = False,
+    total_remaining: str = "0",
+    store_name: str = "",
+    store_phone: str = "",
+):
     from .notification_queue import enqueue
 
     settings = IntegrationSettings.get_solo()
+    store = StoreSettings.get_solo()
+    resolved_store_name = (store_name or store.brand_name or "").strip()
+    resolved_store_phone = (store_phone or store.phone or "").strip()
     try:
         details = _send_whatsapp_debt_reminder_now(
-            settings=settings, phone=phone, customer_name=customer_name, amount=str(amount)
+            settings=settings,
+            phone=phone,
+            customer_name=customer_name,
+            amount=str(amount),
+            lang=lang,
+            debt_items=debt_items or [],
+            reminder_kind=reminder_kind,
+            payment_amount=payment_amount,
+            payment_time=payment_time,
+            is_partial=is_partial,
+            total_remaining=total_remaining,
+            store_name=resolved_store_name,
+            store_phone=resolved_store_phone,
         )
         return {"ok": True, "details": details, "queued": False}
     except ValueError as e:
@@ -323,7 +460,20 @@ def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
             raise
         enqueue(
             NotificationQueue.Kind.WHATSAPP_DEBT_REMINDER,
-            {"phone": phone, "customer_name": customer_name, "amount": str(amount)},
+            {
+                "phone": phone,
+                "customer_name": customer_name,
+                "amount": str(amount),
+                "lang": _norm_lang(lang),
+                "debt_items": debt_items or [],
+                "reminder_kind": reminder_kind,
+                "payment_amount": str(payment_amount),
+                "payment_time": str(payment_time),
+                "is_partial": bool(is_partial),
+                "total_remaining": str(total_remaining),
+                "store_name": resolved_store_name,
+                "store_phone": resolved_store_phone,
+            },
         )
         return {"ok": True, "details": msg, "queued": True}
 

@@ -36,6 +36,11 @@ export function InventoryPage({
     () => variants.map((v) => ({ id: v.id, label: `${v.product_name_uz} / ${v.barcode} / ${v.stock_qty}` })),
     [variants],
   )
+  const selectedVariant = useMemo(() => variants.find((v) => v.id === variantId) || null, [variants, variantId])
+  const receiveQty = Number(qty || '0')
+  const adjustQty = Number(qtyDelta || '0')
+  const receiveAfter = selectedVariant ? selectedVariant.stock_qty + (Number.isFinite(receiveQty) ? receiveQty : 0) : null
+  const adjustAfter = selectedVariant ? selectedVariant.stock_qty + (Number.isFinite(adjustQty) ? adjustQty : 0) : null
 
   async function runAction(fn: () => Promise<void>, okMessage: string) {
     setBusy(true)
@@ -54,12 +59,16 @@ export function InventoryPage({
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.inventory.title')}</h2>
-      <p className="text-xs text-slate-400">{t('admin.inventory.hint')}</p>
+      <p className="text-sm text-slate-300">{t('admin.inventory.hint')}</p>
+      <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3 text-xs text-slate-300">
+        {t('admin.inventory.flowHint')}
+      </div>
       {toast && <ActionToast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} />}
 
       <div className="grid md:grid-cols-2 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
           <h3 className="font-medium">{t('admin.inventory.receiveTitle')}</h3>
+          <p className="text-xs text-slate-400">{t('admin.inventory.receiveHint')}</p>
           <select
             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
             value={variantId}
@@ -78,6 +87,16 @@ export function InventoryPage({
             onChange={(e) => setQty(e.target.value)}
             placeholder={t('admin.inventory.qty')}
           />
+          {selectedVariant && (
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+              <div>
+                {t('admin.inventory.currentStock')}: <span className="font-medium">{selectedVariant.stock_qty}</span>
+              </div>
+              <div>
+                {t('admin.inventory.nextStock')}: <span className="font-medium">{receiveAfter}</span>
+              </div>
+            </div>
+          )}
           <input
             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
             value={note}
@@ -101,6 +120,7 @@ export function InventoryPage({
 
         <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-2">
           <h3 className="font-medium">{t('admin.inventory.adjustTitle')}</h3>
+          <p className="text-xs text-slate-400">{t('admin.inventory.adjustHint')}</p>
           <select
             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
             value={variantId}
@@ -119,6 +139,16 @@ export function InventoryPage({
             onChange={(e) => setQtyDelta(e.target.value)}
             placeholder={t('admin.inventory.qtyDelta')}
           />
+          {selectedVariant && (
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+              <div>
+                {t('admin.inventory.currentStock')}: <span className="font-medium">{selectedVariant.stock_qty}</span>
+              </div>
+              <div>
+                {t('admin.inventory.nextStock')}: <span className="font-medium">{adjustAfter}</span>
+              </div>
+            </div>
+          )}
           <input
             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
             value={note}
@@ -143,8 +173,9 @@ export function InventoryPage({
 
       <div className="rounded border border-slate-700 bg-slate-900 p-3 space-y-3">
         <h3 className="font-medium">{t('admin.settings.stocktakeTitle')}</h3>
+        <p className="text-xs text-slate-400">{t('admin.inventory.stocktakeHint')}</p>
         {!stocktake && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
               className="touch-btn flex-1 min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
               value={stocktakeNote}
@@ -172,7 +203,7 @@ export function InventoryPage({
             <div className="text-sm text-slate-400">
               {t('admin.settings.session')}: {stocktake.id.slice(0, 8)} | {t(`status.${stocktake.status}`)}
             </div>
-            <div className="max-h-72 overflow-auto rounded border border-slate-800">
+            <div className="max-h-72 overflow-auto kiosk-scrollbar rounded border border-slate-800">
               <table className="w-full text-sm">
                 <thead className="bg-slate-900 text-slate-400">
                   <tr>
@@ -199,7 +230,7 @@ export function InventoryPage({
                       <td className="p-2 text-right">
                         <div className="inline-flex gap-2">
                           <input
-                            className="touch-btn min-h-12 px-2 rounded-lg bg-slate-950 border border-slate-700 w-24"
+                            className="touch-btn min-h-12 px-3 rounded-lg bg-slate-950 border border-slate-700 w-32 text-base"
                             value={countByVariant[ln.variant] ?? ''}
                             onChange={(e) => setCountByVariant((p) => ({ ...p, [ln.variant]: e.target.value }))}
                             placeholder={t('admin.settings.qty')}

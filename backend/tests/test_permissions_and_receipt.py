@@ -84,6 +84,14 @@ def test_debt_endpoints_cashier_forbidden(client):
         == 403
     )
     assert (
+        client.patch(
+            f"/api/debt/customers/{customer.id}/",
+            data={"name": "Ali2", "phone_normalized": "998900000111"},
+            content_type="application/json",
+        ).status_code
+        == 403
+    )
+    assert (
         client.post(
             "/api/debt/payments/",
             data={"customer_id": str(customer.id), "amount": "100"},
@@ -94,7 +102,7 @@ def test_debt_endpoints_cashier_forbidden(client):
 
 
 @pytest.mark.django_db
-def test_debt_endpoints_owner_allowed(client):
+def test_debt_endpoints_owner_allowed(client, monkeypatch):
     owner = _mk_user("owner_debt_perm", "OWNER")
     cashier = _mk_user("cashier_debt_origin", "CASHIER")
     client.force_login(owner)
@@ -119,13 +127,30 @@ def test_debt_endpoints_owner_allowed(client):
         == 201
     )
     assert (
-        client.post(
-            "/api/debt/payments/",
-            data={"customer_id": str(customer.id), "amount": "100"},
+        client.patch(
+            f"/api/debt/customers/{customer.id}/",
+            data={"name": "Aziza Updated", "phone_normalized": "998900000335"},
             content_type="application/json",
         ).status_code
         == 200
     )
+    captured = {}
+    def _fake_send_whatsapp_reminder(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "details": "ok", "queued": False}
+    monkeypatch.setattr("integrations.services.send_whatsapp_reminder", _fake_send_whatsapp_reminder)
+    res = client.post(
+        "/api/debt/payments/",
+        data={"customer_id": str(customer.id), "amount": "100"},
+        content_type="application/json",
+        HTTP_ACCEPT_LANGUAGE="ru",
+    )
+    assert res.status_code == 200
+    assert captured.get("reminder_kind") == "repayment_update"
+    assert captured.get("lang") == "ru"
+    assert captured.get("payment_amount") == "100.00"
+    assert captured.get("is_partial") is True
+    assert isinstance(captured.get("debt_items"), list) and len(captured["debt_items"]) >= 1
 
 
 @pytest.mark.django_db

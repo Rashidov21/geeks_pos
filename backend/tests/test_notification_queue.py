@@ -62,3 +62,38 @@ def test_flush_internal_key_localhost(client, settings, monkeypatch):
         REMOTE_ADDR="127.0.0.1",
     )
     assert r2.status_code == 200
+
+
+@pytest.mark.django_db
+def test_flush_sync_report_event_type_matches_contract(monkeypatch):
+    s = IntegrationSettings.get_solo()
+    s.telegram_bot_token = "123:abc"
+    s.telegram_chat_id = "1"
+    s.save()
+
+    enqueue(NotificationQueue.Kind.Z_REPORT_TELEGRAM, {"text": "hello queue"})
+    monkeypatch.setattr("integrations.services._post_json", lambda *a, **k: (True, "{}"))
+
+    from licensing.models import LicenseState
+
+    lic = LicenseState.get_solo()
+    lic.license_key = "ACT-1"
+    lic.hardware_id = "HW-1"
+    lic.save(update_fields=["license_key", "hardware_id"])
+
+    captured: dict[str, object] = {}
+
+    def _fake_sync(**kwargs):
+        captured.update(kwargs)
+        return True, {"ok": True}, 200
+
+    monkeypatch.setattr("licensing.remote_client.remote_sync_report", _fake_sync)
+
+    out = flush_pending(limit=10)
+    assert out["sent"] >= 1
+    assert captured["activation_key"] == "ACT-1"
+    assert captured["hardware_id"] == "HW-1"
+    events = captured["events"]
+    assert isinstance(events, list) and len(events) == 1
+    assert events[0]["event_type"] == "z_report_sync"
+    assert events[0]["device_info"] == "POS-Windows"

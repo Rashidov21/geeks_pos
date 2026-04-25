@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
 import { ActionToast } from '../components/ActionToast'
+import { playUiSound } from '../utils/uiSound'
 
 export function SalesHistoryPage({
   sales,
@@ -45,6 +46,10 @@ export function SalesHistoryPage({
     const timer = setTimeout(() => onFilter(from, to, query.trim()), 300)
     return () => clearTimeout(timer)
   }, [from, to, query, onFilter])
+
+  useEffect(() => {
+    if (voiding) playUiSound('confirm')
+  }, [voiding])
 
   return (
     <div className="p-4 space-y-4">

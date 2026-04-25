@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { playUiSound } from '../utils/uiSound'
 
 export function ActionToast({
   kind,
@@ -15,6 +16,9 @@ export function ActionToast({
 
   useEffect(() => {
     setVisible(true)
+    if (kind === 'ok') playUiSound('success')
+    else if (kind === 'err') playUiSound('error')
+    else playUiSound('info')
     const timer = window.setTimeout(() => {
       setVisible(false)
       onClose?.()

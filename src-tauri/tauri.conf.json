@@ -56,10 +56,10 @@
         "alwaysOnTop": false,
         "decorations": false,
         "fullscreen": false,
-        "height": 600,
-        "resizable": false,
+        "height": 900,
+        "resizable": true,
         "title": "Geeks POS",
-        "width": 800
+        "width": 1200
       }
     ]
   }

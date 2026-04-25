@@ -33,6 +33,7 @@ import {
   fetchVariants,
   logout,
   repayDebt,
+  updateDebtCustomer,
   sendZReport,
   sendWhatsAppReminder,
   backupNow,
@@ -367,6 +368,10 @@ export default function App() {
                   await repayDebt(customerId, amount)
                   await refreshAdminData()
                 }}
+                onUpdateDebtCustomer={async (customerId, name, phone) => {
+                  await updateDebtCustomer(customerId, { name, phone_normalized: phone })
+                  await refreshAdminData()
+                }}
                 onSendDebtReminder={async (customerId, amount) => {
                   await sendWhatsAppReminder(customerId, amount)
                 }}
@@ -475,6 +480,7 @@ function AdminPanel(props: {
   ) => Promise<void>
   onDeleteVariant: (variantId: string) => Promise<void>
   onRepay: (customerId: string, amount: string) => Promise<void>
+  onUpdateDebtCustomer: (customerId: string, name: string, phone: string) => Promise<void>
   onSendDebtReminder: (customerId: string, amount: string) => Promise<void>
   onSaveSettings: (data: {
     brand_name: string
@@ -546,7 +552,7 @@ function AdminPanel(props: {
         onSelect={(s) => navigate(`/admin/${s}`)}
         onLogout={handleAdminLogout}
       />
-      <main className="flex-1">
+      <main className="ml-64 flex-1 min-w-0">
         {(active === 'dashboard' || active === 'settings') && (
           <AdminTopNavbar section={active} onLogout={handleAdminLogout} />
         )}
@@ -591,7 +597,7 @@ function AdminPanel(props: {
             onSetCount={props.onSetStocktakeCount}
             onApplyStocktake={props.onApplyStocktake}
           />} />
-          <Route path="debts" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DebtsPage debts={props.debts} onRepay={props.onRepay} onSendReminder={props.onSendDebtReminder} />} />
+          <Route path="debts" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DebtsPage debts={props.debts} onRepay={props.onRepay} onUpdateCustomer={props.onUpdateDebtCustomer} onSendReminder={props.onSendDebtReminder} />} />
           <Route
             path="sales"
             element={

@@ -23,3 +23,48 @@ body,
   height: 100%;
   margin: 0;
 }
+
+@layer base {
+  .kiosk-mode,
+  .kiosk-mode body,
+  .kiosk-mode #root {
+    height: 100%;
+  }
+
+  .kiosk-mode {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .kiosk-mode input,
+  .kiosk-mode textarea,
+  .kiosk-mode [contenteditable='true'],
+  .kiosk-mode .allow-select {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+@layer utilities {
+  .kiosk-scrollbar {
+    scrollbar-width: auto;
+    scrollbar-color: rgb(71 85 105) rgb(15 23 42);
+  }
+
+  .kiosk-scrollbar::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+  }
+
+  .kiosk-scrollbar::-webkit-scrollbar-thumb {
+    background: rgb(71 85 105);
+    border-radius: 9999px;
+    border: 3px solid rgb(15 23 42);
+  }
+
+  .kiosk-scrollbar::-webkit-scrollbar-track {
+    background: rgb(15 23 42);
+  }
+}
