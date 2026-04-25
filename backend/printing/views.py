@@ -162,13 +162,19 @@ class LabelQueueEscposView(APIView):
         size = ser.validated_data.get("size", "40x30")
         settings = StoreSettings.get_solo()
         out = []
+        requested_ids = [str(item["variant_id"]) for item in ser.validated_data["items"]]
+        variants = ProductVariant.objects.select_related("product", "size", "color").filter(
+            pk__in=requested_ids
+        )
+        by_id = {str(v.id): v for v in variants}
+        missing = [vid for vid in requested_ids if vid not in by_id]
+        if missing:
+            return Response(
+                {"code": "VARIANT_NOT_FOUND", "detail": f"Variant not found: {missing[0]}"},
+                status=404,
+            )
         for item in ser.validated_data["items"]:
-            try:
-                v = ProductVariant.objects.select_related("product", "size", "color").get(
-                    pk=item["variant_id"]
-                )
-            except ProductVariant.DoesNotExist:
-                return Response({"code": "VARIANT_NOT_FOUND", "detail": "Variant not found."}, status=404)
+            v = by_id[str(item["variant_id"])]
             payload = PrinterFactory.render_label(
                 label_payload={"variant": v, "size": size, "copies": item["copies"]},
                 settings=settings,

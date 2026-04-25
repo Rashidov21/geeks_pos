@@ -558,6 +558,11 @@ export function SettingsPage({
               value={integrationForm.telegram_bot_token}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, telegram_bot_token: e.target.value }))}
               placeholder={t('admin.bots.telegramToken')}
+              onFocus={() => {
+                if ((integrationForm.telegram_bot_token || '').includes('*')) {
+                  setIntegrationForm((p) => ({ ...p, telegram_bot_token: '' }))
+                }
+              }}
             />
             <label className="block text-xs text-slate-400">{t('admin.bots.telegramChatId')}</label>
             <input
@@ -608,6 +613,11 @@ export function SettingsPage({
                     setIntegrationForm((p) => ({ ...p, greenapi_api_token_instance: e.target.value }))
                   }
                   placeholder={t('admin.bots.greenApiTokenInstance')}
+                  onFocus={() => {
+                    if ((integrationForm.greenapi_api_token_instance || '').includes('*')) {
+                      setIntegrationForm((p) => ({ ...p, greenapi_api_token_instance: '' }))
+                    }
+                  }}
                 />
               </>
             )}
@@ -617,6 +627,11 @@ export function SettingsPage({
               value={integrationForm.whatsapp_api_token}
               onChange={(e) => setIntegrationForm((p) => ({ ...p, whatsapp_api_token: e.target.value }))}
               placeholder={t('admin.bots.whatsappToken')}
+              onFocus={() => {
+                if ((integrationForm.whatsapp_api_token || '').includes('*')) {
+                  setIntegrationForm((p) => ({ ...p, whatsapp_api_token: '' }))
+                }
+              }}
             />
             <label className="block text-xs text-slate-400">{t('admin.bots.whatsappSender')}</label>
             <input

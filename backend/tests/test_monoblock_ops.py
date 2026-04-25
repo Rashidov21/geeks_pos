@@ -197,7 +197,7 @@ def test_receipt_endpoints_return_sale_not_found_code(client):
 
 
 @pytest.mark.django_db
-def test_tspl_label_honors_size_58mm(client):
+def test_tspl_label_always_40x30(client):
     owner = _mk_user("owner_tspl_size", "OWNER")
     variant = _mk_variant()
     client.force_login(owner)
@@ -214,5 +214,8 @@ def test_tspl_label_honors_size_58mm(client):
     )
     assert r.status_code == 200
     raw = base64.b64decode(r.json()["raw_base64"]).decode("ascii", errors="ignore")
-    assert "SIZE 58 mm,40 mm" in raw
+    assert "SIZE 40 mm,30 mm" in raw
+    assert "SIZE 58 mm,40 mm" not in raw
+    assert raw.index("CLS") < raw.index("BARCODE")
+    assert raw.index("TEXT") < raw.index("BARCODE")
 
