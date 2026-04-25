@@ -7,12 +7,14 @@ import { Package, TrendingDown, TrendingUp, Send, MessageCircle } from 'lucide-r
 
 export function DashboardPage({
   summary,
+  licenseStatus,
   filter,
   primaryChannel,
   onFilter,
   onSendZReport,
 }: {
   summary: DashboardSummary | null
+  licenseStatus?: { valid?: boolean; expires_at?: string | null; last_check_message?: string } | null
   filter: { from?: string; to?: string; year?: string }
   primaryChannel: 'telegram' | 'whatsapp' | 'both'
   onFilter: (from?: string, to?: string, year?: string) => void
@@ -28,6 +30,53 @@ export function DashboardPage({
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.dashboard.title')}</h2>
       {toast && <ActionToast kind={toast.kind} message={toast.message} />}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400">{t('license.title', { defaultValue: 'License' })}</div>
+          <div
+            className={`text-lg mt-1 font-medium ${
+              licenseStatus?.valid === false ? 'text-red-300' : 'text-emerald-300'
+            }`}
+          >
+            {licenseStatus?.valid === false ? t('status.BLOCKED', { defaultValue: 'Blocked' }) : t('status.ACTIVE', { defaultValue: 'Active' })}
+          </div>
+          {licenseStatus?.expires_at && (
+            <div className="text-xs text-slate-500 mt-1">
+              {t('license.expiresLabel', { defaultValue: 'Expires' })}: {licenseStatus.expires_at}
+            </div>
+          )}
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4 md:col-span-2">
+          <div className="text-sm text-slate-400 mb-2">{t('admin.dashboard.quickActions', { defaultValue: 'Quick Actions' })}</div>
+          <button
+            type="button"
+            disabled={busy}
+            className="touch-btn min-h-12 px-5 py-3 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 text-sm font-medium"
+            onClick={async () => {
+              setBusy(true)
+              try {
+                const out = (await onSendZReport()) as {
+                  ok?: boolean
+                  channel_results?: Partial<Record<'telegram' | 'whatsapp', { ok: boolean }>>
+                }
+                const tg = out.channel_results?.telegram?.ok
+                const wa = out.channel_results?.whatsapp?.ok
+                const bothOk = tg && wa
+                const msg = bothOk ? t('admin.bots.zReportSentBoth') : tg ? t('admin.bots.zReportSentTelegram') : wa ? t('admin.bots.zReportSentWhatsapp') : t('admin.bots.zReportSent')
+                setToast({ kind: 'ok', message: msg })
+              } catch (e: unknown) {
+                const code = (e as Error & { code?: string }).code
+                setToast({ kind: 'err', message: t(`err.${code || 'ZREPORT_SEND_FAILED'}`) })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <ReportIcon className="h-4 w-4 inline mr-2" />
+            {t('admin.bots.sendZReport')}
+          </button>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
           <div className="text-sm text-slate-400">{t('admin.dashboard.salesAmount')}</div>
@@ -154,28 +203,9 @@ export function DashboardPage({
           type="button"
           disabled={busy}
           className="touch-btn min-h-12 px-5 py-3 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 text-sm font-medium"
-          onClick={async () => {
-            setBusy(true)
-            try {
-              const out = (await onSendZReport()) as {
-                ok?: boolean
-                channel_results?: Partial<Record<'telegram' | 'whatsapp', { ok: boolean }>>
-              }
-              const tg = out.channel_results?.telegram?.ok
-              const wa = out.channel_results?.whatsapp?.ok
-              const bothOk = tg && wa
-              const msg = bothOk ? t('admin.bots.zReportSentBoth') : tg ? t('admin.bots.zReportSentTelegram') : wa ? t('admin.bots.zReportSentWhatsapp') : t('admin.bots.zReportSent')
-              setToast({ kind: 'ok', message: msg })
-            } catch (e: unknown) {
-              const code = (e as Error & { code?: string }).code
-              setToast({ kind: 'err', message: t(`err.${code || 'ZREPORT_SEND_FAILED'}`) })
-            } finally {
-              setBusy(false)
-            }
-          }}
+          onClick={() => onFilter(undefined, undefined, filter.year)}
         >
-          <ReportIcon className="h-4 w-4 inline mr-2" />
-          {t('admin.bots.sendZReport')}
+          {t('admin.common.apply', { defaultValue: 'Apply' })}
         </button>
       </div>
     </div>

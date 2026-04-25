@@ -21,7 +21,12 @@
         "depends": []
       },
       "externalBin": [],
-      "icon": [],
+      "icon": [
+        "icons/icon.ico",
+        "icons/resized-logo.png",
+        "icons/resized-logo (1).png",
+        "icons/resized-logo (2).png"
+      ],
       "identifier": "com.geeks.pos",
       "longDescription": "",
       "macOS": {
@@ -48,9 +53,11 @@
     },
     "windows": [
       {
-        "fullscreen": false,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "fullscreen": true,
         "height": 600,
-        "resizable": true,
+        "resizable": false,
         "title": "Geeks POS",
         "width": 800
       }

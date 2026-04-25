@@ -50,7 +50,7 @@ export function SalesHistoryPage({
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">{t('admin.sales.title')}</h2>
       {actionToast && <ActionToast kind={actionToast.kind} message={actionToast.message} />}
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="sticky top-0 z-10 flex flex-wrap gap-2 items-center rounded-xl border border-slate-800 bg-slate-950/95 p-2 backdrop-blur">
         <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" className="touch-btn min-h-12 px-3 rounded-xl bg-slate-900 border border-slate-700" value={to} onChange={(e) => setTo(e.target.value)} />
         <input
@@ -81,6 +81,17 @@ export function SalesHistoryPage({
             {exportBusy ? t('admin.common.loading') : t('admin.sales.exportCsv')}
           </button>
         )}
+        <button
+          type="button"
+          className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-700 font-medium"
+          onClick={() => {
+            setFrom('')
+            setTo('')
+            setQuery('')
+          }}
+        >
+          {t('admin.common.reset', { defaultValue: 'Reset' })}
+        </button>
       </div>
       <p className="text-xs text-slate-400">{t('admin.sales.hint')}</p>
       <div className="rounded border border-slate-700 overflow-hidden">
@@ -113,6 +124,11 @@ export function SalesHistoryPage({
                           await onReprint(s.id)
                           setActionToast({ kind: 'ok', message: t('admin.sales.reprintSuccess') })
                         } catch (e: unknown) {
+                          const rawMessage = e instanceof Error ? e.message : String(e || '')
+                          if (rawMessage.startsWith('Printer ulanmagan:')) {
+                            setActionToast({ kind: 'err', message: rawMessage })
+                            return
+                          }
                           const code = (e as Error & { code?: string }).code
                           const message = t(`err.${code || 'PRINT_FAILED'}`, { defaultValue: t('msg.printFailed') })
                           setActionToast({ kind: 'err', message })

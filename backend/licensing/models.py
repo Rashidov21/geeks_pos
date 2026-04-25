@@ -10,6 +10,7 @@ class LicenseState(models.Model):
     hardware_id = models.CharField(max_length=128, blank=True, default="")
     license_key = models.CharField(max_length=255, blank=True, default="")
     expiry_ciphertext = models.BinaryField(null=True, blank=True)
+    demo_started_at = models.DateTimeField(null=True, blank=True)
     last_check_at = models.DateTimeField(null=True, blank=True)
     last_check_ok = models.BooleanField(default=False)
     last_check_message = models.CharField(max_length=500, blank=True, default="")

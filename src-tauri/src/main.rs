@@ -18,6 +18,10 @@ use raw_printer::write_to_device;
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER};
 #[cfg(windows)]
 use windows_sys::Win32::Graphics::Printing::{EnumPrintersW, GetDefaultPrinterW, PRINTER_INFO_4W};
+#[cfg(windows)]
+use windows_sys::Win32::System::Power::{
+    SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+};
 
 struct BackendState {
     child: Mutex<Option<Child>>,
@@ -64,6 +68,58 @@ fn spawn_notification_flush_loop() {
         post_notification_flush();
     });
 }
+
+#[cfg(windows)]
+fn enable_windows_autostart() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
+    let exe_str = exe
+        .to_str()
+        .ok_or_else(|| "Executable path is not valid UTF-8".to_string())?;
+    let status = Command::new("reg")
+        .args([
+            "add",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            "/v",
+            "GeeksPOS",
+            "/t",
+            "REG_SZ",
+            "/d",
+            exe_str,
+            "/f",
+        ])
+        .status()
+        .map_err(|e| format!("reg add failed: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("reg add returned non-zero exit code".to_string())
+    }
+}
+
+#[cfg(not(windows))]
+fn enable_windows_autostart() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn enable_prevent_sleep() {
+    unsafe {
+        let _ = SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
+    }
+}
+
+#[cfg(not(windows))]
+fn enable_prevent_sleep() {}
+
+#[cfg(windows)]
+fn disable_prevent_sleep() {
+    unsafe {
+        let _ = SetThreadExecutionState(ES_CONTINUOUS);
+    }
+}
+
+#[cfg(not(windows))]
+fn disable_prevent_sleep() {}
 
 #[cfg(windows)]
 fn machine_id_windows() -> Result<String, String> {
@@ -222,11 +278,6 @@ fn stop_backend(state: &BackendState) {
         }
         *lock = None;
     }
-}
-
-#[cfg(windows)]
-fn to_wide_null(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 #[cfg(windows)]
@@ -406,7 +457,17 @@ fn main() {
             if let Err(e) = ensure_backend_started(&state) {
                 eprintln!("Backend start warning: {e}");
             }
+            if let Err(e) = enable_windows_autostart() {
+                eprintln!("Autostart setup warning: {e}");
+            }
+            enable_prevent_sleep();
             spawn_notification_flush_loop();
+            if let Some(window) = app.get_window("main") {
+                let _ = window.set_always_on_top(true);
+                let _ = window.set_fullscreen(true);
+                let _ = window.set_decorations(false);
+                let _ = window.set_resizable(false);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -420,9 +481,28 @@ fn main() {
         .expect("error while building tauri app");
 
     app.run(|app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = event {
-            let state = app_handle.state::<BackendState>();
-            stop_backend(&state);
+        match event {
+            tauri::RunEvent::WindowEvent { label, event, .. } => {
+                if label == "main" {
+                    match event {
+                        tauri::WindowEvent::Focused(false) => {
+                            if let Some(window) = app_handle.get_window("main") {
+                                let _ = window.set_focus();
+                            }
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            disable_prevent_sleep();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            tauri::RunEvent::ExitRequested { .. } => {
+                let state = app_handle.state::<BackendState>();
+                stop_backend(&state);
+                disable_prevent_sleep();
+            }
+            _ => {}
         }
     });
 }

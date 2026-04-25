@@ -9,3 +9,14 @@ export async function printRawBase64(payload: string, printerName?: string | nul
   const name = printerName?.trim() || null
   await invoke('print_raw', { payload, printer_name: name })
 }
+
+/** Installed printers from Tauri (Windows). */
+export async function listInstalledPrinters(): Promise<string[]> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/tauri')
+    const names = await invoke<string[]>('list_printers')
+    return Array.isArray(names) ? names : []
+  } catch {
+    return []
+  }
+}

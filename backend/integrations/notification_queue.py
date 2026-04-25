@@ -73,6 +73,26 @@ def flush_pending(*, limit: int = 50) -> dict[str, Any]:
             skipped += 1
             continue
 
+        # Best-effort sync-report to owner dashboard for offline event traceability.
+        try:
+            from licensing.models import LicenseState
+            from licensing.remote_client import remote_sync_report
+
+            lic = LicenseState.get_solo()
+            key = (lic.license_key or "").strip()
+            hw = (lic.hardware_id or "").strip()
+            if key and hw:
+                event = {
+                    "client_event_id": str(row.id),
+                    "event_type": str(row.kind).lower(),
+                    "payload": row.payload,
+                    "client_timestamp": timezone.now().isoformat(),
+                }
+                remote_sync_report(activation_key=key, hardware_id=hw, events=[event])
+        except Exception:
+            # Do not block core notification delivery if sync-report is unavailable.
+            pass
+
         row.status = NotificationQueue.Status.SENT
         row.sent_at = timezone.now()
         row.last_error = ""

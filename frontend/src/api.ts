@@ -235,6 +235,11 @@ export type LicenseStatus = {
   last_check_ok: boolean
   last_check_message: string
   hardware_id_set?: boolean
+  hardware_id?: string
+  demo_days_total?: number
+  demo_days_left?: number
+  demo_expires_at?: string | null
+  requires_activation?: boolean
 }
 
 export async function fetchLicenseStatus(): Promise<LicenseStatus> {
@@ -243,7 +248,7 @@ export async function fetchLicenseStatus(): Promise<LicenseStatus> {
   return (await r.json()) as LicenseStatus
 }
 
-export async function activateLicense(hardware_id: string, license_key: string): Promise<LicenseStatus> {
+export async function activateLicense(hardware_id: string, activation_key: string): Promise<LicenseStatus> {
   const csrf = await fetchCsrf()
   const r = await fetch(`${API}/api/licensing/activate/`, {
     method: 'POST',
@@ -252,7 +257,11 @@ export async function activateLicense(hardware_id: string, license_key: string):
       'Content-Type': 'application/json',
       'X-CSRFToken': csrf,
     },
-    body: JSON.stringify({ hardware_id, license_key }),
+    body: JSON.stringify({
+      hardware_id,
+      activation_key,
+      client_meta: { app_version: 'desktop-tauri' },
+    }),
   })
   if (!r.ok) throw await parseErrorResponse(r, 'LICENSE_ACTIVATE_FAILED')
   return (await r.json()) as LicenseStatus

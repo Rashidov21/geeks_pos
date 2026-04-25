@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import math
 from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
 
 from .crypto import decrypt_expiry_iso, encrypt_expiry_iso
+from .hardware_id import get_fallback_hardware_id
 from .models import LicenseState
 
 
@@ -15,7 +17,56 @@ def enforcement_enabled() -> bool:
 
 
 def get_license_state() -> LicenseState:
-    return LicenseState.get_solo()
+    state = LicenseState.get_solo()
+    changed = False
+    if not state.demo_started_at:
+        state.demo_started_at = timezone.now()
+        changed = True
+    if not (state.hardware_id or "").strip():
+        state.hardware_id = get_fallback_hardware_id()[:128]
+        changed = True
+    if changed:
+        state.save(update_fields=["demo_started_at", "hardware_id", "updated_at"])
+    return state
+
+
+def _demo_days_total() -> int:
+    return max(0, int(getattr(settings, "LICENSE_DEMO_DAYS", 14) or 14))
+
+
+def _demo_days_left(state: LicenseState, now: datetime | None = None) -> int:
+    total = _demo_days_total()
+    if total <= 0:
+        return 0
+    if not state.demo_started_at:
+        return total
+    at = now or timezone.now()
+    expires = state.demo_started_at + timedelta(days=total)
+    delta = (expires - at).total_seconds()
+    if delta <= 0:
+        return 0
+    return max(0, math.ceil(delta / 86400))
+
+
+def _has_active_remote_or_local_license(state: LicenseState) -> bool:
+    hw = (state.hardware_id or "").strip()
+    if not hw or not state.expiry_ciphertext:
+        return False
+    plain = decrypt_expiry_iso(hardware_id=hw, ciphertext=bytes(state.expiry_ciphertext))
+    if not plain:
+        return False
+    expires_at = _parse_expiry_iso(plain)
+    if not expires_at:
+        return False
+    now = timezone.now()
+    if expires_at >= now:
+        return True
+    grace_hours = int(getattr(settings, "LICENSE_OFFLINE_GRACE_HOURS", 0) or 0)
+    if grace_hours > 0 and state.last_valid_remote_at and state.last_check_ok:
+        grace_end = state.last_valid_remote_at + timedelta(hours=grace_hours)
+        if grace_end >= now:
+            return True
+    return False
 
 
 def _parse_expiry_iso(iso: str) -> datetime | None:
@@ -38,30 +89,11 @@ def is_license_valid_for_use() -> bool:
         return True
 
     state = get_license_state()
-    hw = (state.hardware_id or "").strip()
-    if not hw or not state.expiry_ciphertext:
-        return False
-
-    plain = decrypt_expiry_iso(hardware_id=hw, ciphertext=bytes(state.expiry_ciphertext))
-    if not plain:
-        return False
-
-    expires_at = _parse_expiry_iso(plain)
-    if not expires_at:
-        return False
-
-    now = timezone.now()
-    if expires_at >= now:
+    if _has_active_remote_or_local_license(state):
         return True
 
-    # Soft renewal window: allow briefly after stored expiry if a recent remote check succeeded.
-    grace_hours = int(getattr(settings, "LICENSE_OFFLINE_GRACE_HOURS", 0) or 0)
-    if grace_hours > 0 and state.last_valid_remote_at and state.last_check_ok:
-        grace_end = state.last_valid_remote_at + timedelta(hours=grace_hours)
-        if grace_end >= now:
-            return True
-
-    return False
+    # Brand-new installations work during the demo window.
+    return _demo_days_left(state) > 0
 
 
 def mask_license_key(key: str) -> str:
@@ -121,6 +153,14 @@ def status_dict() -> dict[str, Any]:
         if plain:
             expires_at = plain[:10] if len(plain) >= 10 else plain
 
+    demo_total = _demo_days_total()
+    demo_left = _demo_days_left(state)
+    demo_expires_at = (
+        (state.demo_started_at + timedelta(days=demo_total)).date().isoformat()
+        if state.demo_started_at and demo_total > 0
+        else None
+    )
+
     return {
         "enforcement": True,
         "valid": is_license_valid_for_use(),
@@ -129,4 +169,9 @@ def status_dict() -> dict[str, Any]:
         "last_check_ok": state.last_check_ok,
         "last_check_message": state.last_check_message,
         "hardware_id_set": bool(hw),
+        "hardware_id": hw,
+        "demo_days_total": demo_total,
+        "demo_days_left": demo_left,
+        "demo_expires_at": demo_expires_at,
+        "requires_activation": not _has_active_remote_or_local_license(state),
     }

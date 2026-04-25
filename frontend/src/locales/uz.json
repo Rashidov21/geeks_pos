@@ -16,6 +16,10 @@
   "license.activate": "Tekshirish va faollashtirish",
   "license.hardwareUnavailable": "Kompyuter ID olinmadi (faqat Windows Tauri ilovasida ishlaydi).",
   "license.cashierHint": "Litsenziyani faollashtirish uchun do'kon egasi yoki administrator bilan bog'laning.",
+  "license.demoCardTitle": "Demo muddat: {{left}} kun qoldi",
+  "license.demoCardBody": "Dastur ishga tushgan kundan 14 kun demo ishlaydi. Faollashtirish uchun admin Settings -> Security bo'limida activation key yuboradi.",
+  "license.demoExpires": "Demo tugash sanasi",
+  "license.hardwareIdLabel": "Hardware ID",
   "header.reprint": "Qayta chek",
   "header.logout": "Chiqish",
   "header.lock": "Qulflash",
@@ -64,6 +68,13 @@
   "pos.matrixSize": "O'lcham",
   "pos.matrixStock": "Zaxira",
   "pos.afterSaleStock": "Sotuvdan keyin omborda: {{count}} dona",
+  "pos.activeSessions": "Faol navbatlar",
+  "pos.holdCart": "Navbatga olish",
+  "pos.resumeCart": "Tiklash",
+  "pos.cartDeleted": "Navbatdagi savat o'chirildi",
+  "pos.noHeldCarts": "Navbatdagi savatlar yo'q",
+  "pos.newCartOpened": "Yangi savat ochildi",
+  "pos.cartResumed": "Navbatdagi savat tiklandi",
   "msg.printSent": "Chek yuborildi",
   "msg.printClipboard": "Chek clipboardga nusxalandi (printer yoq yoki Tauri yoq).",
   "msg.printFailed": "Chek chiqarilmadi. Qayta urinib koring.",
@@ -381,6 +392,7 @@
   "err.PERMISSION_DENIED": "Bu amal uchun ruxsat yo'q.",
   "err.SALE_ACCESS_DENIED": "Bu savdo yozuviga kirish ruxsati yo'q.",
   "err.VOID_FAILED": "Bekor qilish amalga oshmadi.",
+  "err.LICENSE_ACTIVATE_FAILED": "Litsenziyani faollashtirib bo'lmadi.",
   "err.BACKUP_FAILED": "Backup yaratilmadi."
   ,"err.FETCH_DASHBOARD_FAILED": "Dashboard ma'lumotlari yuklanmadi."
   ,"err.FETCH_INTEGRATIONS_FAILED": "Integratsiya sozlamalari yuklanmadi."

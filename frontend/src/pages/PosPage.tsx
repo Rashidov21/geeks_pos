@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Calculator, LogOut, ScanLine, Printer, LayoutGrid, Lock } from 'lucide-react'
+import { Calculator, LogOut, ScanLine, Printer, LayoutGrid, Lock, Pause, Play, Trash2, Users } from 'lucide-react'
 import Decimal from 'decimal.js'
 import {
   completeSale,
@@ -17,9 +17,9 @@ import {
   updatePosVariantPrice,
   type PosVariant,
 } from '../api'
-import { usePosStore, type PayMode } from '../store/posStore'
+import { usePosStore, type PayMode, type SuspendedCart } from '../store/posStore'
 import { formatMoney } from '../utils/money'
-import { printEscposBase64 } from '../utils/tauriPrint'
+import { dispatchReceipt } from '../utils/printingHub'
 import { TouchNumpad } from '../components/TouchNumpad'
 
 Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP })
@@ -173,6 +173,7 @@ export function PosPage({
   const [meUser, setMeUser] = useState('')
   const [matrixRows, setMatrixRows] = useState<PosVariant[]>([])
   const [matrixBusy, setMatrixBusy] = useState(false)
+  const [lockNow, setLockNow] = useState(() => new Date())
 
   const cart = usePosStore((s) => s.cart)
   const payMode = usePosStore((s) => s.payMode)
@@ -185,6 +186,11 @@ export function PosPage({
   const setCustomer = usePosStore((s) => s.setCustomer)
   const updateLinePrice = usePosStore((s) => s.updateLinePrice)
   const updateLineStock = usePosStore((s) => s.updateLineStock)
+  const suspendedCarts = usePosStore((s) => s.suspendedCarts)
+  const holdCart = usePosStore((s) => s.holdCart)
+  const resumeCart = usePosStore((s) => s.resumeCart)
+  const deleteSuspendedCart = usePosStore((s) => s.deleteSuspendedCart)
+  const setCart = usePosStore((s) => s.setCart)
 
   const subtotal = sumGrand(cart)
   const subtotalDec = useMemo(() => parseSom(subtotal), [subtotal])
@@ -312,6 +318,32 @@ export function PosPage({
   }, [locked, lockTimeoutMinutes])
 
   useEffect(() => {
+    if (!locked) return
+    const id = window.setInterval(() => setLockNow(new Date()), 1000)
+    return () => window.clearInterval(id)
+  }, [locked])
+
+  const lockDateLabel = useMemo(
+    () =>
+      lockNow.toLocaleDateString(i18n.language.startsWith('ru') ? 'ru-RU' : 'uz-UZ', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }),
+    [i18n.language, lockNow],
+  )
+  const lockTimeLabel = useMemo(
+    () =>
+      lockNow.toLocaleTimeString(i18n.language.startsWith('ru') ? 'ru-RU' : 'uz-UZ', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    [i18n.language, lockNow],
+  )
+
+  useEffect(() => {
     let since: string | undefined
     const id = window.setInterval(() => {
       void (async () => {
@@ -388,15 +420,51 @@ export function PosPage({
     setTimeout(() => setToast(null), 4000)
   }
 
+  function resetCheckoutState() {
+    setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
+    setActivePayId(null)
+    setOrderDiscount('0')
+    setDebtDueDate('')
+    setCustomer('', '')
+  }
+
+  function openNewCart(toastMsg?: string) {
+    clearCart()
+    resetCheckoutState()
+    if (toastMsg) showToast('ok', toastMsg)
+    safeRefocus()
+  }
+
+  function holdCurrentCart(opts?: { silent?: boolean }) {
+    if (cart.length === 0) return null
+    const total = Number(grandDec.toString())
+    const suspended = holdCart({ items: cart, total })
+    openNewCart(opts?.silent ? undefined : t('pos.newCartOpened', { defaultValue: 'Yangi savat ochildi' }))
+    return suspended
+  }
+
+  function restoreSuspendedCart(session: SuspendedCart) {
+    setCart(session.items)
+    resetCheckoutState()
+    setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: String(session.total || 0) }])
+    setActivePayId(null)
+    showToast('ok', t('pos.cartResumed', { defaultValue: 'Navbatdagi savat tiklandi' }))
+    safeRefocus()
+  }
+
   async function tryPrint(saleId: string) {
     setPrintBanner(null)
     const b64 = await fetchReceiptEscpos(saleId)
     let ok = false
     if (b64) {
       try {
-        await printEscposBase64(b64, receiptPrinterName || null)
+        await dispatchReceipt(b64, { receipt_printer_name: receiptPrinterName || '' })
         ok = true
-      } catch {
+      } catch (e: unknown) {
+        const rawMessage = e instanceof Error ? e.message : String(e || '')
+        if (rawMessage.startsWith('Printer ulanmagan:')) {
+          setPrintBanner(rawMessage)
+        }
         ok = false
       }
     }
@@ -521,11 +589,7 @@ export function PosPage({
         idem,
       )
       setLastSaleId(res.sale_id)
-      clearCart()
-      setPaymentRows([{ id: crypto.randomUUID(), method: 'CASH', amount: '0' }])
-      setActivePayId(null)
-      setOrderDiscount('0')
-      setDebtDueDate('')
+      openNewCart()
       showToast('ok', `${t('msg.sale')}: ${res.public_sale_no || res.sale_id}`)
       setTimeout(() => setCompleting(false), 400)
       if (autoPrintOnSale) void tryPrint(res.sale_id as string)
@@ -545,6 +609,14 @@ export function PosPage({
   }
 
   function onScanKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.ctrlKey && (e.key === 'w' || e.key === 'W')) {
+      e.preventDefault()
+      return
+    }
+    if (e.altKey && e.key === 'F4') {
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Enter') {
       e.preventDefault()
       if (buffer.trim()) {
@@ -587,6 +659,83 @@ export function PosPage({
       return
     }
   }
+
+  useEffect(() => {
+    function onGlobalKeyDown(e: KeyboardEvent) {
+      if (locked) return
+      if (e.ctrlKey && (e.key === 'w' || e.key === 'W')) {
+        e.preventDefault()
+        return
+      }
+      if (e.altKey && e.key === 'F4') {
+        e.preventDefault()
+        return
+      }
+      if (['Enter', 'Escape', 'F1', 'F2', 'F3'].includes(e.key)) {
+        e.preventDefault()
+        const target = e.target as HTMLElement | null
+        const tag = (target?.tagName || '').toUpperCase()
+        // Keep standard text editing unaffected except the dedicated scanner input.
+        if (tag === 'INPUT' && target?.id !== 'posScanInput') return
+        if (e.key === 'Enter') {
+          if (buffer.trim()) {
+            const normalized = normalizeScanValue(buffer, scannerPrefix, scannerSuffix || '\t')
+            setBuffer('')
+            if (normalized) void handleScanSubmit(normalized)
+          } else if (cart.length > 0 && !completing) {
+            void doComplete()
+          }
+          return
+        }
+        if (e.key === 'Escape') {
+          if (cart.length > 0) {
+            if (e.shiftKey || clearArmed) {
+              clearCart()
+              setClearArmed(false)
+            } else {
+              setClearArmed(true)
+              setBanner(t('msg.clearCartConfirm'))
+            }
+          }
+          setBuffer('')
+          safeRefocus()
+          return
+        }
+        if (e.key === 'F1') setActiveMethod('CASH')
+        if (e.key === 'F2') setActiveMethod('CARD')
+        if (e.key === 'F3') setActiveMethod('DEBT')
+      }
+    }
+    window.addEventListener('keydown', onGlobalKeyDown)
+    return () => window.removeEventListener('keydown', onGlobalKeyDown)
+  }, [
+    buffer,
+    cart.length,
+    clearArmed,
+    clearCart,
+    completing,
+    locked,
+    safeRefocus,
+    scannerPrefix,
+    scannerSuffix,
+    t,
+  ])
+
+  useEffect(() => {
+    if (locked) return
+    const refocus = () => safeRefocus()
+    window.addEventListener('pointerdown', refocus, { passive: true })
+    window.addEventListener('focus', refocus)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') safeRefocus()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pointerdown', refocus)
+      window.removeEventListener('focus', refocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [locked, safeRefocus])
 
   function onScanChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value
@@ -679,6 +828,74 @@ export function PosPage({
           </button>
         </div>
       </header>
+
+      <section className="mx-4 mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-2 text-sm text-slate-300">
+            <Users className="h-4 w-4" />
+            {t('pos.activeSessions', { defaultValue: 'Faol navbatlar' })}: {suspendedCarts.length}
+          </div>
+          <button
+            type="button"
+            className="touch-btn min-h-11 px-4 rounded-xl bg-slate-800 border border-slate-600 inline-flex items-center gap-2 text-sm"
+            onClick={() => {
+              const held = holdCurrentCart()
+              if (!held) {
+                showToast('err', t('cart.empty', { defaultValue: 'Savat bosh' }))
+              }
+            }}
+          >
+            <Pause className="h-4 w-4" />
+            {t('pos.holdCart', { defaultValue: "Navbatga olish" })}
+          </button>
+        </div>
+        {suspendedCarts.length > 0 ? (
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {suspendedCarts.map((session) => (
+              <div
+                key={session.id}
+                className="min-w-[210px] rounded-xl border border-slate-700 bg-slate-900 p-3"
+              >
+                <div className="text-sm font-medium text-slate-100 truncate">{session.label}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {t('summary.total')}: {formatMoney(String(session.total))}
+                </div>
+                <div className="text-xs text-slate-500">{session.timestamp}</div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className="touch-btn min-h-10 px-3 rounded-lg bg-emerald-700 border border-emerald-500 text-xs inline-flex items-center gap-1"
+                    onClick={() => {
+                      if (cart.length > 0) {
+                        holdCurrentCart({ silent: true })
+                      }
+                      const picked = resumeCart(session.id)
+                      if (picked) restoreSuspendedCart(picked)
+                    }}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    {t('pos.resumeCart', { defaultValue: 'Tiklash' })}
+                  </button>
+                  <button
+                    type="button"
+                    className="touch-btn min-h-10 px-3 rounded-lg bg-red-900 border border-red-700 text-xs inline-flex items-center gap-1"
+                    onClick={() => {
+                      deleteSuspendedCart(session.id)
+                      showToast('ok', t('pos.cartDeleted', { defaultValue: "Navbatdagi savat o'chirildi" }))
+                      safeRefocus()
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {t('admin.catalog.delete')}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-slate-500">{t('pos.noHeldCarts', { defaultValue: "Navbatdagi savatlar yo'q" })}</p>
+        )}
+      </section>
 
       {toast && (
         <div
@@ -930,7 +1147,9 @@ export function PosPage({
                     <input
                       className="touch-btn min-h-12 flex-1 min-w-0 px-2 rounded-xl bg-slate-900 border border-slate-600 text-sm"
                       value={r.amount}
-                      onChange={(e) => updatePaymentRow(r.id, { amount: e.target.value })}
+                      readOnly
+                      inputMode="none"
+                      onFocus={() => openAmountNumpad({ kind: 'payment', rowId: r.id })}
                     />
                     <button
                       type="button"
@@ -967,7 +1186,9 @@ export function PosPage({
               <input
                 className="touch-btn min-h-12 flex-1 px-3 rounded-xl bg-slate-900 border border-slate-600 text-sm"
                 value={orderDiscount}
-                onChange={(e) => setOrderDiscount(e.target.value)}
+                readOnly
+                inputMode="none"
+                onFocus={() => openAmountNumpad({ kind: 'discount' })}
                 placeholder={t('summary.discount')}
               />
               <button
@@ -1025,6 +1246,20 @@ export function PosPage({
           <div className="rounded-xl border border-slate-800 p-4 bg-slate-900">
             <div className="text-slate-400 text-sm">{t('summary.total')}</div>
             <div className="text-3xl font-bold mt-1">{formatMoney(grand)}</div>
+            <button
+              type="button"
+              disabled={cart.length === 0}
+              className="touch-btn mt-3 w-full min-h-12 py-3 rounded-xl bg-slate-800 border border-slate-600 disabled:opacity-40 font-medium inline-flex items-center justify-center gap-2"
+              onClick={() => {
+                const held = holdCurrentCart()
+                if (!held) {
+                  showToast('err', t('cart.empty', { defaultValue: 'Savat bosh' }))
+                }
+              }}
+            >
+              <Pause className="h-4 w-4" />
+              {t('pos.holdCart', { defaultValue: "Navbatga olish" })}
+            </button>
             <button
               type="button"
               disabled={completing || cart.length === 0}
@@ -1220,14 +1455,19 @@ export function PosPage({
         </footer>
       )}
       {locked && (
-        <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
-            <h3 className="text-lg font-semibold">{t('header.lock', { defaultValue: 'Locked' })}</h3>
+        <div className="fixed inset-0 z-[90] bg-black/90 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-950 p-5 space-y-4 shadow-2xl">
+            <div className="flex flex-col items-center text-center gap-2">
+              <img src="/resized-logo.png" alt="logo" className="h-16 w-16 rounded-xl bg-white p-1 object-contain" />
+              <h3 className="text-xl font-semibold">{t('header.lock', { defaultValue: 'Locked' })}</h3>
+              <p className="text-slate-300 text-sm capitalize">{lockDateLabel}</p>
+              <p className="text-3xl font-bold text-emerald-300 tracking-wide">{lockTimeLabel}</p>
+            </div>
             <input
               type="password"
               inputMode="numeric"
               maxLength={4}
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-700"
+              className="touch-btn w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700"
               value={unlockPin}
               onChange={(e) => setUnlockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder={t('auth.pinPlaceholder', { defaultValue: '1234' })}
@@ -1235,7 +1475,7 @@ export function PosPage({
             {unlockErr && <p className="text-sm text-red-400">{unlockErr}</p>}
             <button
               type="button"
-              className="w-full px-3 py-2 rounded bg-emerald-700 border border-emerald-500"
+              className="touch-btn w-full px-3 py-2 rounded-xl bg-emerald-700 border border-emerald-500 font-medium"
               onClick={async () => {
                 try {
                   if (!meUser) throw new Error('INVALID_PIN')

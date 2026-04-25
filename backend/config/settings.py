@@ -3,8 +3,12 @@ Django settings for local MVP (SQLite, localhost API).
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Load environment variables from local files (root/.env, backend/.env).
+load_dotenv(BASE_DIR.parent / ".env", override=False)
+load_dotenv(BASE_DIR / ".env", override=False)
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-change-in-production-geeks-pos-mvp")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
@@ -109,9 +113,12 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # License / Owner Dashboard (set in production)
-LICENSE_CHECK_URL = os.environ.get("LICENSE_CHECK_URL", "").strip()
+LICENSE_API_BASE_URL = os.environ.get("LICENSE_API_BASE_URL", "").strip()
+LICENSE_AUTH_TOKEN = os.environ.get("LICENSE_AUTH_TOKEN", "").strip()
+LICENSE_CLIENT_API_KEY = os.environ.get("LICENSE_CLIENT_API_KEY", "").strip()
 LICENSE_ENFORCEMENT = os.environ.get("LICENSE_ENFORCEMENT", "0" if DEBUG else "1") == "1"
 LICENSE_OFFLINE_GRACE_HOURS = int(os.environ.get("LICENSE_OFFLINE_GRACE_HOURS", "72"))
+LICENSE_DEMO_DAYS = int(os.environ.get("LICENSE_DEMO_DAYS", "14"))
 INTERNAL_FLUSH_KEY = os.environ.get("INTERNAL_FLUSH_KEY", "").strip()
 if DEBUG and not INTERNAL_FLUSH_KEY:
     INTERNAL_FLUSH_KEY = "dev-internal-flush-key"

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { printRawBase64 } from './utils/tauriPrint'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -70,6 +69,7 @@ import { LoginPage } from './pages/LoginPage'
 import { PosPage } from './pages/PosPage'
 import { SalesHistoryPage } from './pages/SalesHistoryPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { dispatchLabel, dispatchReceipt } from './utils/printingHub'
 
 const DEFAULT_LICENSE_OK: LicenseStatus = {
   enforcement: false,
@@ -116,6 +116,16 @@ export default function App() {
   const [lastStockSyncAt, setLastStockSyncAt] = useState<string | null>(null)
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null)
   const isManager = role === 'ADMIN' || role === 'OWNER'
+
+  useEffect(() => {
+    function preventAccidentalClose(e: KeyboardEvent) {
+      if ((e.ctrlKey && (e.key === 'w' || e.key === 'W')) || (e.altKey && e.key === 'F4')) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', preventAccidentalClose)
+    return () => window.removeEventListener('keydown', preventAccidentalClose)
+  }, [])
 
   function resetLocalSession() {
     setAuthed(false)
@@ -301,6 +311,7 @@ export default function App() {
                 catalogPage={catalogFilter.page}
                 settings={settings}
                 dashboardSummary={dashboardSummary}
+                licenseStatus={licenseStatus}
                 dashboardFilter={dashboardFilter}
                 integrationSettings={integrationSettings}
                 stocktake={stocktake}
@@ -331,14 +342,12 @@ export default function App() {
                 }}
                 onPrintSticker={async (variantId, copies, size) => {
                   const { raw_base64, escpos_base64 } = await fetchLabelEscpos(variantId, size, copies)
-                  const labelPrinter = (settings?.label_printer_name || '').trim()
-                  await printRawBase64(raw_base64 || escpos_base64, labelPrinter || null)
+                  await dispatchLabel(raw_base64 || escpos_base64, settings)
                 }}
                 onPrintStickerQueue={async (items, size) => {
                   const out = await fetchLabelQueueEscpos(items, size)
-                  const labelPrinter = (settings?.label_printer_name || '').trim()
                   for (const row of out.items) {
-                    await printRawBase64(row.raw_base64 || row.escpos_base64, labelPrinter || null)
+                    await dispatchLabel(row.raw_base64 || row.escpos_base64, settings)
                   }
                 }}
                 onToggleVariant={async (v) => {
@@ -378,9 +387,8 @@ export default function App() {
                 }}
                 onReprintSale={async (saleId) => {
                   const b64 = await fetchReceiptEscpos(saleId)
-                  const printerName = (settings?.receipt_printer_name || '').trim()
                   if (b64) {
-                    await printRawBase64(b64, printerName || null)
+                    await dispatchReceipt(b64, settings)
                     return
                   }
                   const plain = await fetchReceiptPlain(saleId)
@@ -450,6 +458,7 @@ function AdminPanel(props: {
   catalogPage: number
   settings: StoreSettings | null
   dashboardSummary: DashboardSummary | null
+  licenseStatus: LicenseStatus | null
   dashboardFilter: { from?: string; to?: string; year?: string }
   integrationSettings: IntegrationSettings | null
   stocktake: StocktakeSession | null
@@ -538,7 +547,7 @@ function AdminPanel(props: {
       />
       <main className="flex-1">
         <Routes>
-          <Route path="dashboard" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DashboardPage summary={props.dashboardSummary} filter={props.dashboardFilter} primaryChannel={props.integrationSettings?.primary_report_channel || 'both'} onFilter={props.onFilterDashboard} onSendZReport={props.onSendZReport} />} />
+          <Route path="dashboard" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DashboardPage summary={props.dashboardSummary} licenseStatus={props.licenseStatus} filter={props.dashboardFilter} primaryChannel={props.integrationSettings?.primary_report_channel || 'both'} onFilter={props.onFilterDashboard} onSendZReport={props.onSendZReport} />} />
           <Route path="pos" element={<PosPage onLogout={props.onLogout} />} />
           <Route
             path="catalog"

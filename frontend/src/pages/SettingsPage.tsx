@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  activateLicense,
+  fetchLicenseStatus,
   fetchPinUsers,
   setUserPin,
   testLabelPrintPayload,
   testReceiptPrintPayload,
   type IntegrationSettings,
+  type LicenseStatus,
   type PinUser,
   type StocktakeSession,
   type StoreSettings,
@@ -13,6 +16,7 @@ import { useTranslation } from 'react-i18next'
 import { labelPrinterStatus, receiptPrinterStatus } from '../utils/hardwareStatus'
 import { printRawBase64 } from '../utils/tauriPrint'
 import { ActionToast } from '../components/ActionToast'
+import { getTauriMachineId } from '../utils/tauriMachineId'
 
 export function SettingsPage({
   settings,
@@ -94,6 +98,10 @@ export function SettingsPage({
   const [scannerTest, setScannerTest] = useState('')
   const [scannerTestOk, setScannerTestOk] = useState(false)
   const [hwStep, setHwStep] = useState<1 | 2 | 3>(1)
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null)
+  const [hardwareId, setHardwareId] = useState('')
+  const [activationKey, setActivationKey] = useState('')
+  const [licenseBusy, setLicenseBusy] = useState(false)
   const [integrationForm, setIntegrationForm] = useState<IntegrationSettings>({
     telegram_bot_token: integrations?.telegram_bot_token ?? '',
     telegram_chat_id: integrations?.telegram_chat_id ?? '',
@@ -162,6 +170,18 @@ export function SettingsPage({
     })
   }, [integrations])
 
+  useEffect(() => {
+    void (async () => {
+      const machineId = (await getTauriMachineId()) || ''
+      setHardwareId(machineId)
+      try {
+        setLicenseStatus(await fetchLicenseStatus())
+      } catch {
+        setLicenseStatus(null)
+      }
+    })()
+  }, [])
+
   const receiptHw = useMemo(
     () => receiptPrinterStatus(printerOptions, form.receipt_printer_name),
     [printerOptions, form.receipt_printer_name],
@@ -187,6 +207,11 @@ export function SettingsPage({
       await fn()
       setActionToast({ kind: 'ok', message: t('admin.settings.actionCompleted', { label }) })
     } catch (e: unknown) {
+      const rawMessage = e instanceof Error ? e.message : String(e || '')
+      if (rawMessage.startsWith('Printer ulanmagan:')) {
+        setActionToast({ kind: 'err', message: rawMessage })
+        return
+      }
       const code = (e as Error & { code?: string }).code
       const message = t(`err.${code || 'UNKNOWN'}`, {
         defaultValue: t('admin.settings.actionFailed', { label }),
@@ -347,9 +372,15 @@ export function SettingsPage({
                     onClick={async () => {
                       try {
                         const out = await testReceiptPrintPayload()
+                        // Settings wizard test should go to the explicitly selected printer.
                         await printRawBase64(out.raw_base64, form.receipt_printer_name || null)
                         setActionToast({ kind: 'ok', message: t('admin.settings.testReceiptOk') })
                       } catch (e: unknown) {
+                        const rawMessage = e instanceof Error ? e.message : String(e || '')
+                        if (rawMessage.startsWith('Printer ulanmagan:')) {
+                          setActionToast({ kind: 'err', message: rawMessage })
+                          return
+                        }
                         const code = (e as Error & { code?: string }).code
                         setActionToast({
                           kind: 'err',
@@ -416,9 +447,15 @@ export function SettingsPage({
                     onClick={async () => {
                       try {
                         const out = await testLabelPrintPayload()
+                        // Settings wizard test should go to the explicitly selected label printer.
                         await printRawBase64(out.raw_base64, form.label_printer_name || null)
                         setActionToast({ kind: 'ok', message: t('admin.settings.testLabelOk') })
                       } catch (e: unknown) {
+                        const rawMessage = e instanceof Error ? e.message : String(e || '')
+                        if (rawMessage.startsWith('Printer ulanmagan:')) {
+                          setActionToast({ kind: 'err', message: rawMessage })
+                          return
+                        }
                         const code = (e as Error & { code?: string }).code
                         setActionToast({
                           kind: 'err',
@@ -693,6 +730,53 @@ export function SettingsPage({
       )}
       {activeTab === 'security' && (
         <div className="space-y-3">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-lg font-semibold">{t('license.title')}</h3>
+            <div className="text-sm text-slate-300 space-y-1">
+              <p>
+                {t('license.demoCardTitle', { defaultValue: 'Demo muddat: {{left}} kun qoldi', left: licenseStatus?.demo_days_left ?? 0 })}
+              </p>
+              <p>
+                {t('license.demoExpires', { defaultValue: 'Demo tugash sanasi' })}: {licenseStatus?.demo_expires_at || '-'}
+              </p>
+              <p>
+                {t('license.expiresLabel')}: {licenseStatus?.expires_at || '-'}
+              </p>
+              <p className="break-all">
+                {t('license.hardwareIdLabel', { defaultValue: 'Hardware ID' })}: {hardwareId || t('admin.common.na')}
+              </p>
+            </div>
+            <input
+              className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+              value={activationKey}
+              onChange={(e) => setActivationKey(e.target.value)}
+              placeholder={t('license.keyPlaceholder')}
+            />
+            <button
+              type="button"
+              disabled={licenseBusy || !activationKey.trim() || !hardwareId.trim()}
+              className="touch-btn min-h-12 px-5 rounded-xl bg-emerald-700 border border-emerald-500 disabled:opacity-50"
+              onClick={async () => {
+                setLicenseBusy(true)
+                try {
+                  const next = await activateLicense(hardwareId.trim(), activationKey.trim())
+                  setLicenseStatus(next)
+                  setActivationKey('')
+                  setActionToast({ kind: 'ok', message: t('license.activate') })
+                } catch (e: unknown) {
+                  const code = (e as Error & { code?: string }).code
+                  setActionToast({
+                    kind: 'err',
+                    message: t(`err.${code || 'LICENSE_ACTIVATE_FAILED'}`, { defaultValue: t('msg.errorGeneric') }),
+                  })
+                } finally {
+                  setLicenseBusy(false)
+                }
+              }}
+            >
+              {licenseBusy ? t('admin.common.saving') : t('license.activate')}
+            </button>
+          </div>
           <h3 className="text-lg font-semibold">{t('admin.settings.pinUsers', { defaultValue: 'User PIN management' })}</h3>
           <div className="rounded border border-slate-700 overflow-hidden">
             <table className="w-full text-sm">

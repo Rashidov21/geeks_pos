@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { fetchPinUsers, loginWithPin } from '../api'
+import { fetchLicenseStatus, fetchPinUsers, loginWithPin, type LicenseStatus } from '../api'
+import { getTauriMachineId } from '../utils/tauriMachineId'
 
 export function LoginPage({ onDone }: { onDone: () => void }) {
   const { t, i18n } = useTranslation()
@@ -9,6 +10,8 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
   const [p, setP] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [licenseInfo, setLicenseInfo] = useState<LicenseStatus | null>(null)
+  const [hardwareId, setHardwareId] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -19,6 +22,17 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
       } catch {
         setUsers([])
       }
+    })()
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setLicenseInfo(await fetchLicenseStatus())
+      } catch {
+        setLicenseInfo(null)
+      }
+      setHardwareId(await getTauriMachineId())
     })()
   }, [])
 
@@ -68,6 +82,27 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
           </button>
         </div>
         <h1 className="text-xl font-semibold text-center">{t('app.title')}</h1>
+        {licenseInfo && licenseInfo.enforcement && (licenseInfo.requires_activation ?? true) && (
+          <div className="rounded-xl border border-amber-700 bg-amber-950/30 p-3 text-sm space-y-2">
+            <p className="font-semibold text-amber-100">
+              {t('license.demoCardTitle', { defaultValue: 'Demo muddat: {{left}} kun qoldi', left: licenseInfo.demo_days_left ?? 0 })}
+            </p>
+            <p className="text-amber-100/90">
+              {t('license.demoCardBody', {
+                defaultValue:
+                  "Dastur ishga tushgan kundan 14 kun demo ishlaydi. Faollashtirish uchun admin Settings -> Security bo'limida activation key yuboradi.",
+              })}
+            </p>
+            <div className="text-xs text-amber-200 space-y-1">
+              <p>
+                {t('license.demoExpires', { defaultValue: 'Demo tugash sanasi' })}: {licenseInfo.demo_expires_at || '-'}
+              </p>
+              <p className="break-all">
+                {t('license.hardwareIdLabel', { defaultValue: 'Hardware ID' })}: {hardwareId || t('admin.common.na')}
+              </p>
+            </div>
+          </div>
+        )}
         <label className="block text-sm">
           {t('auth.userSelect', { defaultValue: t('auth.username') })}
           <select

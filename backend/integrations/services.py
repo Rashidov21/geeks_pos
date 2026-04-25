@@ -9,6 +9,12 @@ from reports.services import sales_metrics, q_money
 from .models import IntegrationSettings, NotificationQueue
 
 
+class NotificationDeliveryError(ValueError):
+    def __init__(self, message: str, *, retriable: bool):
+        super().__init__(message)
+        self.retriable = retriable
+
+
 def _post_json(url: str, payload: dict, headers: dict[str, str] | None = None):
     data = json.dumps(payload).encode("utf-8")
     req = Request(url, data=data, method="POST")
@@ -62,6 +68,30 @@ def _build_z_report_text(*, metrics: dict, lang: str) -> str:
     )
 
 
+def _build_z_report_whatsapp_text(*, metrics: dict, lang: str) -> str:
+    if lang == "ru":
+        return (
+            f"*Z-Report* _{metrics['date']}_\n"
+            f"- *Продажи:* {metrics['sales_count']}\n"
+            f"- *Сумма:* {_fmt_money(metrics['sales_amount'])}\n"
+            f"- Наличные: {_fmt_money(metrics['cash_total'])}\n"
+            f"- Карта: {_fmt_money(metrics['card_total'])}\n"
+            f"- Долг: {_fmt_money(metrics['debt_total'])}\n"
+            f"- Возвраты: {metrics['returned_count']} / {_fmt_money(metrics['returned_total'])}\n"
+            f"- *Открытый долг:* {_fmt_money(metrics['open_debt_total'])}"
+        )
+    return (
+        f"*Z-Report* _{metrics['date']}_\n"
+        f"- *Savdolar:* {metrics['sales_count']}\n"
+        f"- *Savdo summasi:* {_fmt_money(metrics['sales_amount'])}\n"
+        f"- Naqd: {_fmt_money(metrics['cash_total'])}\n"
+        f"- Karta: {_fmt_money(metrics['card_total'])}\n"
+        f"- Nasiya: {_fmt_money(metrics['debt_total'])}\n"
+        f"- Qaytish: {metrics['returned_count']} / {_fmt_money(metrics['returned_total'])}\n"
+        f"- *Ochiq qarz:* {_fmt_money(metrics['open_debt_total'])}"
+    )
+
+
 def _telegram_ready(settings: IntegrationSettings) -> bool:
     return bool(settings.telegram_bot_token and settings.telegram_chat_id)
 
@@ -85,7 +115,8 @@ def _send_telegram_text(*, settings: IntegrationSettings, text: str):
         {"chat_id": settings.telegram_chat_id, "text": text},
     )
     if not ok:
-        raise ValueError(f"Telegram send failed: {details}")
+        retriable = "HTTP 4" not in details or "HTTP 429" in details
+        raise NotificationDeliveryError(f"Telegram send failed: {details}", retriable=retriable)
     return details
 
 
@@ -108,7 +139,8 @@ def _send_whatsapp_text(*, settings: IntegrationSettings, text: str):
             headers={"Authorization": f"Bearer {settings.whatsapp_api_token}"},
         )
     if not ok:
-        raise ValueError(f"WhatsApp send failed: {details}")
+        retriable = "HTTP 4" not in details or "HTTP 429" in details
+        raise NotificationDeliveryError(f"WhatsApp send failed: {details}", retriable=retriable)
     return details
 
 
@@ -142,7 +174,8 @@ def _send_whatsapp_debt_reminder_now(
             headers={"Authorization": f"Bearer {settings.whatsapp_api_token}"},
         )
     if not ok:
-        raise ValueError(f"WhatsApp send failed: {details}")
+        retriable = "HTTP 4" not in details or "HTTP 429" in details
+        raise NotificationDeliveryError(f"WhatsApp send failed: {details}", retriable=retriable)
     return details
 
 
@@ -151,12 +184,18 @@ def send_daily_z_report(*, lang: str = "uz"):
     return send_z_report_multichannel(lang=lang, from_date=today, to_date=today)
 
 
-def _should_queue_after_telegram_error(msg: str) -> bool:
-    return "incomplete" not in msg.lower()
+def _should_queue_after_telegram_error(exc: Exception) -> bool:
+    if isinstance(exc, NotificationDeliveryError):
+        return exc.retriable
+    msg = str(exc).lower()
+    return "incomplete" not in msg
 
 
-def _should_queue_after_whatsapp_error(msg: str) -> bool:
-    return "incomplete" not in msg.lower() and "settings are incomplete" not in msg.lower()
+def _should_queue_after_whatsapp_error(exc: Exception) -> bool:
+    if isinstance(exc, NotificationDeliveryError):
+        return exc.retriable
+    msg = str(exc).lower()
+    return "incomplete" not in msg and "settings are incomplete" not in msg
 
 
 def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None, to_date: str | None = None):
@@ -165,7 +204,8 @@ def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None
     settings = IntegrationSettings.get_solo()
     selected_lang = _norm_lang(lang)
     metrics = sales_metrics(from_date=from_date, to_date=to_date)
-    text = _build_z_report_text(metrics=metrics, lang=selected_lang)
+    text_telegram = _build_z_report_text(metrics=metrics, lang=selected_lang)
+    text_whatsapp = _build_z_report_whatsapp_text(metrics=metrics, lang=selected_lang)
 
     channel_results: dict[str, dict[str, str | bool]] = {}
     use_telegram = _telegram_ready(settings)
@@ -175,15 +215,15 @@ def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None
 
     if use_telegram:
         try:
-            details = _send_telegram_text(settings=settings, text=text)
+            details = _send_telegram_text(settings=settings, text=text_telegram)
             channel_results["telegram"] = {"ok": True, "details": details, "queued": False}
         except ValueError as e:
             msg = str(e)
-            if _should_queue_after_telegram_error(msg):
+            if _should_queue_after_telegram_error(e):
                 enqueue(
                     NotificationQueue.Kind.Z_REPORT_TELEGRAM,
                     {
-                        "text": text,
+                        "text": text_telegram,
                         "lang": selected_lang,
                         "from_date": from_date,
                         "to_date": to_date,
@@ -194,15 +234,15 @@ def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None
                 channel_results["telegram"] = {"ok": False, "details": msg, "queued": False}
     if use_whatsapp:
         try:
-            details = _send_whatsapp_text(settings=settings, text=text)
+            details = _send_whatsapp_text(settings=settings, text=text_whatsapp)
             channel_results["whatsapp"] = {"ok": True, "details": details, "queued": False}
         except ValueError as e:
             msg = str(e)
-            if _should_queue_after_whatsapp_error(msg):
+            if _should_queue_after_whatsapp_error(e):
                 enqueue(
                     NotificationQueue.Kind.Z_REPORT_WHATSAPP,
                     {
-                        "text": text,
+                        "text": text_whatsapp,
                         "lang": selected_lang,
                         "from_date": from_date,
                         "to_date": to_date,
@@ -228,10 +268,26 @@ def send_whatsapp_reminder(*, phone: str, customer_name: str, amount: str):
         return {"ok": True, "details": details, "queued": False}
     except ValueError as e:
         msg = str(e)
-        if not _should_queue_after_whatsapp_error(msg):
+        if not _should_queue_after_whatsapp_error(e):
             raise
         enqueue(
             NotificationQueue.Kind.WHATSAPP_DEBT_REMINDER,
             {"phone": phone, "customer_name": customer_name, "amount": str(amount)},
         )
         return {"ok": True, "details": msg, "queued": True}
+
+
+def run_auto_daily_z_report_if_due(*, now=None) -> dict:
+    """
+    Daily scheduler hook. Sends at most once per local day.
+    Returns: {"ran": bool, "reason": str, ...}
+    """
+    ref_now = now or timezone.localtime()
+    today = timezone.localdate()
+    settings = IntegrationSettings.get_solo()
+    if settings.last_auto_z_report_date == today:
+        return {"ran": False, "reason": "already_sent"}
+    out = send_daily_z_report(lang="uz")
+    settings.last_auto_z_report_date = today
+    settings.save(update_fields=["last_auto_z_report_date"])
+    return {"ran": True, "reason": "sent", "result": out}

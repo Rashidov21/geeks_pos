@@ -267,8 +267,13 @@ export function CatalogPage({
       }))
       setMatrixCells({})
       setWizardStep(1)
-    } catch {
-      setToast(t('admin.catalog.wizard.bulkError'))
+    } catch (e: unknown) {
+      const rawMessage = e instanceof Error ? e.message : String(e || '')
+      if (rawMessage.startsWith('Printer ulanmagan:')) {
+        setToast(rawMessage)
+      } else {
+        setToast(t('admin.catalog.wizard.bulkError'))
+      }
     } finally {
       setBusy(false)
     }
@@ -716,8 +721,13 @@ export function CatalogPage({
                         try {
                           await onPrintSticker(v.id, 1, '40x30')
                           setToast(t('admin.catalog.stickerPrinted'))
-                        } catch {
-                          setToast(t('err.LABEL_PRINT_FAILED'))
+                        } catch (e: unknown) {
+                          const rawMessage = e instanceof Error ? e.message : String(e || '')
+                          if (rawMessage.startsWith('Printer ulanmagan:')) {
+                            setToast(rawMessage)
+                          } else {
+                            setToast(t('err.LABEL_PRINT_FAILED'))
+                          }
                         }
                       }}
                     >
@@ -907,8 +917,13 @@ export function CatalogPage({
                     setToast(t('admin.catalog.queuePrinted'))
                     setQueueMap({})
                     setQueueOpen(false)
-                  } catch {
-                    setToast(t('err.LABEL_QUEUE_FAILED'))
+                  } catch (e: unknown) {
+                    const rawMessage = e instanceof Error ? e.message : String(e || '')
+                    if (rawMessage.startsWith('Printer ulanmagan:')) {
+                      setToast(rawMessage)
+                    } else {
+                      setToast(t('err.LABEL_QUEUE_FAILED'))
+                    }
                   }
                 }}
               >

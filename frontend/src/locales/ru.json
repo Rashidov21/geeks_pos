@@ -16,6 +16,10 @@
   "license.activate": "Проверить и активировать",
   "license.hardwareUnavailable": "Не удалось получить ID компьютера (только Windows, приложение Tauri).",
   "license.cashierHint": "Для активации лицензии обратитесь к владельцу или администратору.",
+  "license.demoCardTitle": "Демо период: осталось {{left}} дней",
+  "license.demoCardBody": "Система работает 14 дней в демо с первого запуска. Для активации администратор отправляет activation key в Settings -> Security.",
+  "license.demoExpires": "Дата окончания демо",
+  "license.hardwareIdLabel": "Hardware ID",
   "header.reprint": "Повторный чек",
   "header.logout": "Выход",
   "header.lock": "Блокировка",
@@ -64,6 +68,13 @@
   "pos.matrixSize": "Размер",
   "pos.matrixStock": "Остаток",
   "pos.afterSaleStock": "После продажи на складе: {{count}} шт.",
+  "pos.activeSessions": "Активные очереди",
+  "pos.holdCart": "Поставить в очередь",
+  "pos.resumeCart": "Восстановить",
+  "pos.cartDeleted": "Отложенная корзина удалена",
+  "pos.noHeldCarts": "Нет отложенных корзин",
+  "pos.newCartOpened": "Открыта новая корзина",
+  "pos.cartResumed": "Отложенная корзина восстановлена",
   "msg.printSent": "Чек отправлен",
   "msg.printClipboard": "Чек скопирован в буфер (нет принтера или tauri).",
   "msg.printFailed": "Печать не удалась. Повторите.",
@@ -381,6 +392,7 @@
   "err.PERMISSION_DENIED": "Недостаточно прав для действия.",
   "err.SALE_ACCESS_DENIED": "Нет доступа к этой продаже.",
   "err.VOID_FAILED": "Не удалось отменить продажу.",
+  "err.LICENSE_ACTIVATE_FAILED": "Не удалось активировать лицензию.",
   "err.BACKUP_FAILED": "Не удалось создать backup."
   ,"err.FETCH_DASHBOARD_FAILED": "Не удалось загрузить данные dashboard."
   ,"err.FETCH_INTEGRATIONS_FAILED": "Не удалось загрузить настройки интеграций."

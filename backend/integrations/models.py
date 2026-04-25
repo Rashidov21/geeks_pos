@@ -26,6 +26,7 @@ class IntegrationSettings(models.Model):
     primary_report_channel = models.CharField(
         max_length=16, choices=PrimaryReportChannel.choices, default=PrimaryReportChannel.BOTH
     )
+    last_auto_z_report_date = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
