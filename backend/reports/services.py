@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from catalog.models import ProductVariant
 from debt.models import Debt
+from inventory.models import InventoryMovement
 from sales.models import Payment, Sale, SaleLine
 
 ROUND_UNIT = Decimal("1")
@@ -44,7 +45,29 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
     )
     avg_check = q_money((sales_amount / sales_count) if sales_count else 0)
     void_count = voided.count()
-    returned_total = q_money(voided.aggregate(total=Sum("grand_total"))["total"])
+    return_movements = InventoryMovement.objects.filter(type=InventoryMovement.Type.RETURN)
+    if from_date:
+        return_movements = return_movements.filter(created_at__date__gte=from_date)
+    if to_date:
+        return_movements = return_movements.filter(created_at__date__lte=to_date)
+    returned_count = return_movements.values("ref_sale_id").distinct().count()
+    returned_total_raw = Decimal("0")
+    movements = list(return_movements.select_related("ref_sale").values("ref_sale_id", "variant_id", "qty_delta"))
+    if movements:
+        sale_ids = {m["ref_sale_id"] for m in movements if m["ref_sale_id"]}
+        line_map: dict[tuple[str, str], Decimal] = {}
+        if sale_ids:
+            for ln in SaleLine.objects.filter(sale_id__in=sale_ids).values("sale_id", "variant_id", "net_unit_price"):
+                line_map[(str(ln["sale_id"]), str(ln["variant_id"]))] = Decimal(str(ln["net_unit_price"] or 0))
+        for m in movements:
+            sid = m["ref_sale_id"]
+            vid = m["variant_id"]
+            if not sid or not vid:
+                continue
+            unit = line_map.get((str(sid), str(vid)), Decimal("0"))
+            qty = max(int(m["qty_delta"] or 0), 0)
+            returned_total_raw += (unit * Decimal(qty))
+    returned_total = q_money(returned_total_raw)
 
     cash_total = q_money(
         Payment.objects.filter(sale__in=completed, method=Payment.Method.CASH).aggregate(total=Sum("amount"))["total"]
@@ -127,7 +150,7 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
         "total_discounts": total_discounts,
         "open_debt_count": open_debt_count,
         "open_debt_total": open_debt_total,
-        "returned_count": void_count,
+        "returned_count": returned_count,
         "returned_total": returned_total,
         "cash_total": cash_total,
         "card_total": card_total,

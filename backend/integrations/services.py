@@ -1,6 +1,7 @@
 import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from django.utils import timezone
 
 from reports.services import sales_metrics, q_money
 
@@ -111,13 +112,14 @@ def _send_whatsapp_text(*, settings: IntegrationSettings, text: str):
 
 
 def send_daily_z_report(*, lang: str = "uz"):
-    return send_z_report_multichannel(lang=lang)
+    today = str(timezone.localdate())
+    return send_z_report_multichannel(lang=lang, from_date=today, to_date=today)
 
 
-def send_z_report_multichannel(*, lang: str = "uz"):
+def send_z_report_multichannel(*, lang: str = "uz", from_date: str | None = None, to_date: str | None = None):
     settings = IntegrationSettings.get_solo()
     selected_lang = _norm_lang(lang)
-    metrics = sales_metrics()
+    metrics = sales_metrics(from_date=from_date, to_date=to_date)
     text = _build_z_report_text(metrics=metrics, lang=selected_lang)
 
     channel_results: dict[str, dict[str, str | bool]] = {}

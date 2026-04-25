@@ -8,6 +8,7 @@ from catalog.models import Category, Color, Product, ProductVariant, Size
 from decimal import Decimal
 from sales.models import Sale
 from reports.services import sales_metrics
+from inventory.models import InventoryMovement
 
 
 def _mk_user(username: str, role: str) -> User:
@@ -265,4 +266,66 @@ def test_dashboard_summary_year_filter(client):
     out = client.get("/api/reports/summary/?year=2026")
     assert out.status_code == 200
     assert out.json()["range"]["year"] == "2026"
+
+
+@pytest.mark.django_db
+def test_sales_metrics_counts_real_returns_not_voids(client):
+    owner = _mk_user("owner_ret_metrics", "OWNER")
+    cashier = _mk_user("cashier_ret_metrics", "CASHIER")
+    variant = _mk_variant()
+    client.force_login(cashier)
+    r = client.post(
+        "/api/sales/complete/",
+        data={
+            "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
+            "payments": [{"method": "CASH", "amount": "150000"}],
+            "expected_grand_total": "150000",
+        },
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="ret-metrics-1",
+    )
+    assert r.status_code == 200
+    sale_id = r.json()["sale_id"]
+    client.force_login(owner)
+    rr = client.post(
+        f"/api/sales/{sale_id}/return/",
+        data={"lines": [{"variant_id": str(variant.id), "qty": 1}], "reason": "return"},
+        content_type="application/json",
+    )
+    assert rr.status_code == 200
+    m = sales_metrics()
+    assert m["returned_count"] >= 1
+    assert str(m["returned_total"]) == "150000"
+
+
+@pytest.mark.django_db
+def test_send_daily_z_report_uses_today_range(monkeypatch):
+    captured: dict[str, str | None] = {}
+
+    def _fake_metrics(*, from_date=None, to_date=None):
+        captured["from_date"] = from_date
+        captured["to_date"] = to_date
+        return {
+            "date": "2026-04-25",
+            "sales_count": 0,
+            "sales_amount": Decimal("0"),
+            "cash_total": Decimal("0"),
+            "card_total": Decimal("0"),
+            "debt_total": Decimal("0"),
+            "returned_count": 0,
+            "returned_total": Decimal("0"),
+            "open_debt_total": Decimal("0"),
+        }
+
+    monkeypatch.setattr("integrations.services.sales_metrics", _fake_metrics)
+    monkeypatch.setattr("integrations.services._telegram_ready", lambda *_: True)
+    monkeypatch.setattr("integrations.services._send_telegram_text", lambda **_: "ok")
+    monkeypatch.setattr("integrations.services._whatsapp_ready", lambda *_: False)
+    from integrations.services import send_daily_z_report
+
+    out = send_daily_z_report(lang="uz")
+    assert out["ok"] is True
+    today = str(timezone.localdate())
+    assert captured["from_date"] == today
+    assert captured["to_date"] == today
 

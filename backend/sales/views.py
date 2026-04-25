@@ -98,9 +98,12 @@ class SaleDetailView(APIView):
     def get(self, request, pk):
         from .models import Sale
 
-        sale = Sale.objects.select_related("cashier").prefetch_related("lines__variant__product", "payments").get(
-            pk=pk
-        )
+        try:
+            sale = Sale.objects.select_related("cashier").prefetch_related("lines__variant__product", "payments").get(
+                pk=pk
+            )
+        except Sale.DoesNotExist:
+            return Response({"code": "SALE_NOT_FOUND", "detail": "Sale not found."}, status=404)
         if not _has_sale_access(request.user, sale):
             return Response(
                 {"code": "SALE_ACCESS_DENIED", "detail": "You do not have access to this sale."},
@@ -246,7 +249,10 @@ class SaleVoidView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request, pk):
-        sale = Sale.objects.prefetch_related("lines").get(pk=pk)
+        try:
+            sale = Sale.objects.prefetch_related("lines").get(pk=pk)
+        except Sale.DoesNotExist:
+            return Response({"code": "SALE_NOT_FOUND", "detail": "Sale not found."}, status=404)
         ser = VoidSaleSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         voided = void_sale(
@@ -267,7 +273,10 @@ class SaleReturnView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request, pk):
-        sale = Sale.objects.prefetch_related("lines").get(pk=pk)
+        try:
+            sale = Sale.objects.prefetch_related("lines").get(pk=pk)
+        except Sale.DoesNotExist:
+            return Response({"code": "SALE_NOT_FOUND", "detail": "Sale not found."}, status=404)
         ser = SaleReturnSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:

@@ -29,7 +29,10 @@ class ReceiveView(APIView):
     def post(self, request):
         ser = ReceiveSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        v = ProductVariant.objects.get(pk=ser.validated_data["variant_id"])
+        try:
+            v = ProductVariant.objects.get(pk=ser.validated_data["variant_id"])
+        except ProductVariant.DoesNotExist:
+            return Response({"code": "VARIANT_NOT_FOUND", "detail": "Variant not found"}, status=404)
         apply_movement(
             variant=v,
             qty_delta=ser.validated_data["qty"],
@@ -47,7 +50,10 @@ class AdjustView(APIView):
     def post(self, request):
         ser = AdjustSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        v = ProductVariant.objects.get(pk=ser.validated_data["variant_id"])
+        try:
+            v = ProductVariant.objects.get(pk=ser.validated_data["variant_id"])
+        except ProductVariant.DoesNotExist:
+            return Response({"code": "VARIANT_NOT_FOUND", "detail": "Variant not found"}, status=404)
         delta = ser.validated_data["qty_delta"]
         try:
             apply_movement(
@@ -79,9 +85,12 @@ class StocktakeSessionDetailView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def get(self, request, session_id):
-        session = StocktakeSession.objects.prefetch_related("lines__variant__product").get(
-            pk=session_id
-        )
+        try:
+            session = StocktakeSession.objects.prefetch_related("lines__variant__product").get(
+                pk=session_id
+            )
+        except StocktakeSession.DoesNotExist:
+            return Response({"code": "SESSION_NOT_FOUND", "detail": "Stocktake session not found"}, status=404)
         return Response(StocktakeSessionSerializer(session).data)
 
 
@@ -89,10 +98,16 @@ class StocktakeCountView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request, session_id):
-        session = StocktakeSession.objects.get(pk=session_id)
+        try:
+            session = StocktakeSession.objects.get(pk=session_id)
+        except StocktakeSession.DoesNotExist:
+            return Response({"code": "SESSION_NOT_FOUND", "detail": "Stocktake session not found"}, status=404)
         ser = StocktakeCountSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        v = ProductVariant.objects.get(pk=ser.validated_data["variant_id"])
+        try:
+            v = ProductVariant.objects.get(pk=ser.validated_data["variant_id"])
+        except ProductVariant.DoesNotExist:
+            return Response({"code": "VARIANT_NOT_FOUND", "detail": "Variant not found"}, status=404)
         line = set_stocktake_count(
             session=session,
             variant=v,
@@ -114,7 +129,10 @@ class StocktakeApplyView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def post(self, request, session_id):
-        session = StocktakeSession.objects.get(pk=session_id)
+        try:
+            session = StocktakeSession.objects.get(pk=session_id)
+        except StocktakeSession.DoesNotExist:
+            return Response({"code": "SESSION_NOT_FOUND", "detail": "Stocktake session not found"}, status=404)
         session = apply_stocktake(session=session, user=request.user)
         return Response(
             {

@@ -44,10 +44,16 @@ class DebtPaymentView(APIView):
     def post(self, request):
         ser = DebtPaymentSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        cust = Customer.objects.get(pk=ser.validated_data["customer_id"])
-        touched = record_debt_payment(
-            customer=cust,
-            amount=ser.validated_data["amount"],
-            user=request.user,
-        )
+        try:
+            cust = Customer.objects.get(pk=ser.validated_data["customer_id"])
+        except Customer.DoesNotExist:
+            return Response({"code": "CUSTOMER_NOT_FOUND", "detail": "Customer not found"}, status=404)
+        try:
+            touched = record_debt_payment(
+                customer=cust,
+                amount=ser.validated_data["amount"],
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response({"code": "DEBT_PAYMENT_FAILED", "detail": str(exc)}, status=400)
         return Response(DebtSerializer(touched, many=True).data)
