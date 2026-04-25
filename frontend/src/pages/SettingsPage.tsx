@@ -811,6 +811,14 @@ export function SettingsPage({
                 {t('license.hardwareIdLabel', { defaultValue: 'Hardware ID' })}: {hardwareId || t('admin.common.na')}
               </p>
             </div>
+            <div className="rounded-xl border border-sky-700/60 bg-sky-950/30 p-3 text-sm text-sky-100 space-y-1">
+              <p className="font-medium">{t('license.contactDeveloperTitle')}</p>
+              <p className="text-sky-200/90">{t('license.contactDeveloperHint')}</p>
+              <p className="text-sky-200/90">{t('license.contactDeveloperTelegram1')}</p>
+              <p className="text-sky-200/90">{t('license.contactDeveloperTelegram2')}</p>
+              <p className="text-sky-200/90">{t('license.contactDeveloperPhone1')}</p>
+              <p className="text-sky-200/90">{t('license.contactDeveloperPhone2')}</p>
+            </div>
             <input
               className="touch-btn w-full min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
               value={activationKey}
@@ -915,7 +923,7 @@ export function SettingsPage({
         <HardDriveDownload className="h-5 w-5 text-emerald-400 shrink-0" />
         <div className="mr-auto">
           <div className="font-medium text-slate-200">{t('admin.settings.backupNow')}</div>
-          <div className="text-xs text-slate-400">{t('admin.settings.backupHint', { defaultValue: 'Baza nusxasini xavfsiz joyga saqlang.' })}</div>
+          <div className="text-xs text-slate-400">{t('admin.settings.backupHint')}</div>
         </div>
         <button
           type="button"
