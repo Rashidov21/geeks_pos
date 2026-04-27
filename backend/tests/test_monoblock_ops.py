@@ -122,6 +122,33 @@ def test_hardware_config_visible_for_cashier(client):
 
 
 @pytest.mark.django_db
+def test_hardware_config_patch_by_cashier(client):
+    cashier = _mk_user("cashier_hw_patch", "CASHIER")
+    client.force_login(cashier)
+    r = client.patch(
+        "/api/printing/hardware-config/",
+        data={"receipt_printer_name": "PATCH-PRINTER-TEST"},
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+    assert r.json()["receipt_printer_name"] == "PATCH-PRINTER-TEST"
+
+
+@pytest.mark.django_db
+def test_cashier_stock_list_excludes_purchase_price(client):
+    cashier = _mk_user("cashier_stock_list", "CASHIER")
+    client.force_login(cashier)
+    r = client.get("/api/catalog/variants/cashier-stock/")
+    assert r.status_code == 200
+    body = r.json()
+    assert "results" in body
+    if body["results"]:
+        row = body["results"][0]
+        assert "purchase_price" not in row
+        assert "stock_qty" in row
+
+
+@pytest.mark.django_db
 def test_store_settings_save_hardware_fields_for_owner(client):
     owner = _mk_user("owner_hw_save", "OWNER")
     client.force_login(owner)

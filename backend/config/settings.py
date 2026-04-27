@@ -71,10 +71,20 @@ TEMPLATES = [
     },
 ]
 
+APPDATA_ROOT = Path(os.environ.get("APPDATA", str(BASE_DIR)))
+APP_HOME_DIR = APPDATA_ROOT / "GeeksPOS"
+APP_HOME_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = Path(os.environ.get("GEEKS_POS_DB_PATH", str(APP_HOME_DIR / "db.sqlite3")))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+LEGACY_DB_PATH = BASE_DIR / "db.sqlite3"
+if not DB_PATH.exists() and LEGACY_DB_PATH.exists():
+    # One-time migration path for upgrades from repo-local SQLite.
+    DB_PATH.write_bytes(LEGACY_DB_PATH.read_bytes())
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": DB_PATH,
         "OPTIONS": {"timeout": 30},
     }
 }
@@ -93,12 +103,23 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = APP_HOME_DIR / "media"
+MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser", "rest_framework.parsers.MultiPartParser"],
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "geeks-pos-default",
+        "TIMEOUT": 60,
+    }
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -109,6 +130,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",
     "http://localhost:5175",
     "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -132,14 +155,36 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5175",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
+    "https://tauri.localhost",
 ]
+
+LOG_DIR = Path(os.environ.get("GEEKS_POS_LOG_DIR", str(APP_HOME_DIR / "logs")))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+APP_LOG_FILE = LOG_DIR / "backend.log"
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "root": {"handlers": ["console"], "level": "INFO"},
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(APP_LOG_FILE),
+            "maxBytes": 2 * 1024 * 1024,
+            "backupCount": 3,
+            "encoding": "utf-8",
+        },
+    },
+    "root": {
+        "handlers": ["console", "file"] if DEBUG else ["file"],
+        "level": "INFO",
+    },
     "loggers": {
-        "audit": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "audit": {
+            "handlers": ["console", "file"] if DEBUG else ["file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.db.backends": {"handlers": ["file"], "level": "WARNING", "propagate": False},
     },
 }

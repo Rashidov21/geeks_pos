@@ -16,12 +16,18 @@ class CoreConfig(AppConfig):
         import time
 
         from django.utils import timezone
+        from django.db.utils import OperationalError
         from django.db.backends.signals import connection_created
 
         def _pragma(sender, connection, **kwargs):
             if connection.vendor == "sqlite":
                 with connection.cursor() as c:
-                    c.execute("PRAGMA journal_mode=WAL;")
+                    try:
+                        c.execute("PRAGMA journal_mode=WAL;")
+                    except OperationalError:
+                        # Another process can temporarily hold a lock during startup.
+                        # Keep serving with busy_timeout; next connections will retry WAL.
+                        pass
                     c.execute("PRAGMA busy_timeout=30000;")
 
         connection_created.connect(_pragma)

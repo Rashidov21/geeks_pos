@@ -7,6 +7,7 @@ import {
   fetchReceiptEscpos,
   fetchReceiptPlain,
   fetchHardwareConfig,
+  fetchStoreSettings,
   fetchVariantByBarcode,
   fetchPosVariantSearch,
   fetchPosVariantsByProduct,
@@ -292,21 +293,34 @@ export function PosPage({
   }, [stockMatrix, t])
 
   useEffect(() => {
+    const inProgress = cart.length > 0 || completing
+    window.dispatchEvent(new CustomEvent('geekspos-sale-progress', { detail: { inProgress } }))
+  }, [cart.length, completing])
+
+  useEffect(() => {
     ;(async () => {
+      let store: Awaited<ReturnType<typeof fetchStoreSettings>> | null = null
+      try {
+        store = await fetchStoreSettings()
+      } catch {
+        store = null
+      }
       try {
         const cfg = await fetchHardwareConfig()
         setScannerMode(cfg.scanner_mode === 'serial' ? 'serial' : 'keyboard')
         setScannerPrefix(normalizeScannerToken(cfg.scanner_prefix || ''))
         setScannerSuffix(normalizeScannerToken(cfg.scanner_suffix || '\t') || '\t')
         setAutoPrintOnSale(cfg.auto_print_on_sale !== false)
-        setReceiptPrinterName((cfg.receipt_printer_name || '').trim())
+        const fromStore = (store?.receipt_printer_name || '').trim()
+        const fromHw = (cfg.receipt_printer_name || '').trim()
+        setReceiptPrinterName(fromStore || fromHw)
         setLockTimeoutMinutes(Math.max(1, Number(cfg.lock_timeout_minutes || 5)))
       } catch {
         setScannerPrefix('')
         setScannerSuffix('\t')
         setScannerMode('keyboard')
         setAutoPrintOnSale(true)
-        setReceiptPrinterName('')
+        setReceiptPrinterName((store?.receipt_printer_name || '').trim())
         setLockTimeoutMinutes(5)
       }
     })()

@@ -1,10 +1,11 @@
-from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import User
 from django.db import OperationalError, ProgrammingError
 
 from .models import Role, UserProfile
 
-DEFAULT_PIN = "1234"
+DEFAULT_PIN = "1111"
+LEGACY_PINS = ("1234",)
 DEFAULT_USERS = (
     {"username": "admin", "password": "pass12345", "role": Role.ADMIN},
     {"username": "cashier", "password": "pass12345", "role": Role.CASHIER},
@@ -36,6 +37,16 @@ def ensure_default_users_and_pins() -> None:
                 profile.pin_enabled = True
                 profile.pin_hash = make_password(DEFAULT_PIN)
                 updates.extend(["pin_enabled", "pin_hash"])
+            elif (
+                profile.pin_enabled
+                and profile.pin_hash
+                and any(check_password(legacy, profile.pin_hash) for legacy in LEGACY_PINS)
+                and not check_password(DEFAULT_PIN, profile.pin_hash)
+            ):
+                # Safe one-time upgrade for legacy demo installs (1234 -> 1111).
+                # Custom operator PINs are preserved because they won't match legacy values.
+                profile.pin_hash = make_password(DEFAULT_PIN)
+                updates.append("pin_hash")
             if updates:
                 profile.save(update_fields=updates)
     except (OperationalError, ProgrammingError):

@@ -3,13 +3,14 @@
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use std::fs;
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 #[cfg(windows)]
 use raw_printer::write_to_device;
@@ -25,6 +26,45 @@ use windows_sys::Win32::System::Power::{
 
 struct BackendState {
     child: Mutex<Option<Child>>,
+    port: Mutex<u16>,
+}
+
+fn backend_candidate_names() -> Vec<&'static str> {
+    #[cfg(windows)]
+    {
+        vec![
+            "geeks_pos_backend.exe",
+            "geeks_pos_backend-x86_64-pc-windows-msvc.exe",
+            "geeks_pos_backend-i686-pc-windows-msvc.exe",
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        vec!["geeks_pos_backend"]
+    }
+}
+
+fn app_home_dir() -> PathBuf {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        return PathBuf::from(appdata).join("GeeksPOS");
+    }
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".geeks_pos")
+}
+
+fn append_log_line(level: &str, message: &str) {
+    let dir = app_home_dir().join("logs");
+    let _ = fs::create_dir_all(&dir);
+    let file = dir.join("app.log");
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!("[{ts}] [{level}] {message}\n");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(file) {
+        let _ = f.write_all(line.as_bytes());
+    }
 }
 
 fn internal_flush_key() -> String {
@@ -37,7 +77,7 @@ fn internal_flush_key() -> String {
     })
 }
 
-fn post_notification_flush() {
+fn post_notification_flush(port: u16) {
     let key = internal_flush_key();
     if key.is_empty() {
         return;
@@ -45,7 +85,7 @@ fn post_notification_flush() {
     let body = r#"{"limit":50}"#;
     let req = format!(
         "POST /api/integrations/notification-queue/flush/ HTTP/1.1\r\n\
-         Host: 127.0.0.1:8000\r\n\
+         Host: 127.0.0.1:{port}\r\n\
          X-Internal-Key: {key}\r\n\
          Content-Type: application/json\r\n\
          Content-Length: {}\r\n\
@@ -53,7 +93,7 @@ fn post_notification_flush() {
          {body}",
         body.len()
     );
-    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:8000") {
+    if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
         let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
         let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
         let _ = stream.write_all(req.as_bytes());
@@ -62,10 +102,12 @@ fn post_notification_flush() {
     }
 }
 
-fn spawn_notification_flush_loop() {
-    thread::spawn(|| loop {
+fn spawn_notification_flush_loop(app: tauri::AppHandle) {
+    thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(300));
-        post_notification_flush();
+        let state = app.state::<BackendState>();
+        let port = state.port.lock().map(|p| *p).unwrap_or(8000);
+        post_notification_flush(port);
     });
 }
 
@@ -96,8 +138,62 @@ fn enable_windows_autostart() -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
+fn enable_windows_task_autostart() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
+    let exe_str = exe
+        .to_str()
+        .ok_or_else(|| "Executable path is not valid UTF-8".to_string())?;
+    let task_name = "GeeksPOS_Autostart";
+    let status = Command::new("schtasks")
+        .args([
+            "/Create",
+            "/F",
+            "/SC",
+            "ONLOGON",
+            "/RL",
+            "HIGHEST",
+            "/TN",
+            task_name,
+            "/TR",
+            exe_str,
+        ])
+        .status()
+        .map_err(|e| format!("schtasks create failed: {e}"))?;
+    if status.success() {
+        return Ok(());
+    }
+
+    // Some POS users don't have rights for HIGHEST. Retry with LIMITED.
+    let fallback = Command::new("schtasks")
+        .args([
+            "/Create",
+            "/F",
+            "/SC",
+            "ONLOGON",
+            "/RL",
+            "LIMITED",
+            "/TN",
+            task_name,
+            "/TR",
+            exe_str,
+        ])
+        .status()
+        .map_err(|e| format!("schtasks create fallback failed: {e}"))?;
+    if fallback.success() {
+        Ok(())
+    } else {
+        Err("schtasks returned non-zero exit code".to_string())
+    }
+}
+
 #[cfg(not(windows))]
 fn enable_windows_autostart() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn enable_windows_task_autostart() -> Result<(), String> {
     Ok(())
 }
 
@@ -164,14 +260,19 @@ fn machine_id() -> Result<String, String> {
     }
 }
 
-fn health_ok() -> bool {
-    if let Ok(mut stream) = TcpStream::connect("127.0.0.1:8000") {
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
-        let _ = stream.set_write_timeout(Some(Duration::from_millis(800)));
-        let _ = stream.write_all(b"GET /api/health/ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+fn health_ok(port: u16) -> bool {
+    if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(2000)));
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(1200)));
+        let req = format!(
+            "GET /api/health/ HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        );
+        let _ = stream.write_all(req.as_bytes());
         let mut buf = String::new();
         if stream.read_to_string(&mut buf).is_ok() {
-            return buf.contains("200") && buf.contains("\"status\": \"ok\"");
+            let has_ok_status_line = buf.starts_with("HTTP/1.1 200") || buf.starts_with("HTTP/1.0 200");
+            let has_ok_payload = buf.contains("\"status\":\"ok\"") || buf.contains("\"status\": \"ok\"");
+            return has_ok_status_line && has_ok_payload;
         }
     }
     false
@@ -193,7 +294,53 @@ fn backend_script_path() -> PathBuf {
     PathBuf::from("../backend/run_waitress.py")
 }
 
-fn backend_command(script: &PathBuf) -> Command {
+fn backend_sidecar_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let candidates = backend_candidate_names();
+    for name in candidates {
+        if let Some(path) = app.path_resolver().resolve_resource(name) {
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+        let candidate = exe_dir.join(name);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn pick_backend_port(preferred: u16) -> u16 {
+    if TcpListener::bind(("127.0.0.1", preferred)).is_ok() {
+        return preferred;
+    }
+    if let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) {
+        if let Ok(addr) = listener.local_addr() {
+            return addr.port();
+        }
+    }
+    preferred
+}
+
+fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
+    let waitress_threads = std::env::var("WAITRESS_THREADS").unwrap_or_else(|_| "2".to_string());
+    if let Some(sidecar) = backend_sidecar_path(app) {
+        append_log_line("INFO", &format!("Starting sidecar backend: {}", sidecar.display()));
+        let mut cmd = Command::new(sidecar);
+        cmd.arg("--host")
+            .arg("127.0.0.1")
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--threads")
+            .arg(&waitress_threads)
+            .env("DJANGO_DEBUG", "0")
+            .env("PYTHONUNBUFFERED", "1")
+            .env("WAITRESS_THREADS", &waitress_threads);
+        return cmd;
+    }
+    let script = backend_script_path();
+    append_log_line("INFO", &format!("Starting python backend: {}", script.display()));
     #[cfg(windows)]
     {
         let mut cmd = Command::new("py");
@@ -202,7 +349,12 @@ fn backend_command(script: &PathBuf) -> Command {
             .arg("--host")
             .arg("127.0.0.1")
             .arg("--port")
-            .arg("8000");
+            .arg(port.to_string())
+            .arg("--threads")
+            .arg(&waitress_threads)
+            .env("DJANGO_DEBUG", "0")
+            .env("PYTHONUNBUFFERED", "1")
+            .env("WAITRESS_THREADS", &waitress_threads);
         return cmd;
     }
 
@@ -213,13 +365,24 @@ fn backend_command(script: &PathBuf) -> Command {
             .arg("--host")
             .arg("127.0.0.1")
             .arg("--port")
-            .arg("8000");
+            .arg(port.to_string())
+            .arg("--threads")
+            .arg(&waitress_threads)
+            .env("DJANGO_DEBUG", "0")
+            .env("PYTHONUNBUFFERED", "1")
+            .env("WAITRESS_THREADS", &waitress_threads);
         return cmd;
     }
 }
 
-fn ensure_backend_started(state: &BackendState) -> Result<(), String> {
-    if health_ok() {
+fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
+    append_log_line("INFO", "bootstrap_started");
+    let selected_port = pick_backend_port(8000);
+    if let Ok(mut lock) = state.port.lock() {
+        *lock = selected_port;
+    }
+    if health_ok(selected_port) {
+        append_log_line("INFO", "health_ok_existing");
         return Ok(());
     }
 
@@ -242,8 +405,7 @@ fn ensure_backend_started(state: &BackendState) -> Result<(), String> {
         }
     }
 
-    let script = backend_script_path();
-    let mut cmd = backend_command(&script);
+    let mut cmd = backend_command(app, selected_port);
     cmd
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -259,14 +421,32 @@ fn ensure_backend_started(state: &BackendState) -> Result<(), String> {
         *lock = Some(child);
     }
 
-    for _ in 0..20 {
-        if health_ok() {
+    // Bootstrap can take longer on first run (migrations + seed on slower disks).
+    for _ in 0..120 {
+        if health_ok(selected_port) {
+            append_log_line("INFO", "health_ok_after_spawn");
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(300));
+        thread::sleep(Duration::from_millis(1000));
     }
     stop_backend(state);
+    append_log_line("ERROR", "bootstrap_failed_healthcheck");
     Err("Backend healthcheck failed after start".to_string())
+}
+
+#[tauri::command]
+fn get_backend_base_url(state: tauri::State<BackendState>) -> Result<String, String> {
+    let port = state
+        .port
+        .lock()
+        .map_err(|_| "Backend port mutex poisoned".to_string())?;
+    Ok(format!("http://127.0.0.1:{}", *port))
+}
+
+#[tauri::command]
+fn request_app_exit(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
 }
 
 fn stop_backend(state: &BackendState) {
@@ -274,6 +454,7 @@ fn stop_backend(state: &BackendState) {
         if let Some(child) = lock.as_mut() {
             if let Ok(None) = child.try_wait() {
                 let _ = child.kill();
+                let _ = child.wait();
             }
         }
         *lock = None;
@@ -445,23 +626,79 @@ fn list_printers() -> Result<Vec<String>, String> {
     }
 }
 
+#[tauri::command]
+fn append_app_log(level: String, message: String) -> Result<(), String> {
+    append_log_line(level.trim(), message.trim());
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_webview2_runtime() -> Result<(), String> {
+    let probe = Command::new("reg")
+        .args([
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            "/v",
+            "pv",
+        ])
+        .output()
+        .map_err(|e| format!("WebView2 check failed: {e}"))?;
+    if probe.status.success() {
+        return Ok(());
+    }
+    let probe_x86 = Command::new("reg")
+        .args([
+            "query",
+            r"HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            "/v",
+            "pv",
+        ])
+        .output()
+        .map_err(|e| format!("WebView2 x86 check failed: {e}"))?;
+    if probe_x86.status.success() {
+        return Ok(());
+    }
+    Err("Microsoft Edge WebView2 Runtime topilmadi. Iltimos runtime'ni o'rnating.".to_string())
+}
+
+#[cfg(not(windows))]
+fn ensure_webview2_runtime() -> Result<(), String> {
+    Ok(())
+}
+
 fn main() {
     let state = BackendState {
         child: Mutex::new(None),
+        port: Mutex::new(8000),
     };
 
     let app = tauri::Builder::default()
         .manage(state)
         .setup(|app| {
+            if let Err(e) = ensure_webview2_runtime() {
+                append_log_line("ERROR", &e);
+                if let Some(win) = app.get_window("main") {
+                    tauri::api::dialog::blocking::message(Some(&win), "WebView2 talab qilinadi", &e);
+                } else {
+                    eprintln!("WebView2 talab qilinadi: {e}");
+                }
+                return Err(e.into());
+            }
             let state = app.state::<BackendState>();
-            if let Err(e) = ensure_backend_started(&state) {
+            if let Err(e) = ensure_backend_started(&app.handle(), &state) {
+                append_log_line("ERROR", &format!("Backend start warning: {e}"));
                 eprintln!("Backend start warning: {e}");
             }
             if let Err(e) = enable_windows_autostart() {
+                append_log_line("WARN", &format!("Autostart setup warning: {e}"));
                 eprintln!("Autostart setup warning: {e}");
             }
+            if let Err(e) = enable_windows_task_autostart() {
+                append_log_line("WARN", &format!("Task autostart warning: {e}"));
+                eprintln!("Task autostart warning: {e}");
+            }
             enable_prevent_sleep();
-            spawn_notification_flush_loop();
+            spawn_notification_flush_loop(app.handle());
             if let Some(window) = app.get_window("main") {
                 let _ = window.set_always_on_top(true);
                 let _ = window.set_fullscreen(true);
@@ -475,7 +712,10 @@ fn main() {
             print_raw,
             print_escpos,
             list_printers,
-            machine_id
+            machine_id,
+            append_app_log,
+            get_backend_base_url,
+            request_app_exit
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri app");
@@ -501,6 +741,7 @@ fn main() {
                 let state = app_handle.state::<BackendState>();
                 stop_backend(&state);
                 disable_prevent_sleep();
+                append_log_line("INFO", "Application exit requested; backend stopped.");
             }
             _ => {}
         }

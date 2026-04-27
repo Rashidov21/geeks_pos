@@ -59,6 +59,15 @@ class HardwareConfigView(APIView):
         obj = StoreSettings.get_solo()
         return Response(HardwareConfigSerializer(obj).data)
 
+    def patch(self, request):
+        """Cashier/admin: printer + scanner hardware fields only (subset of StoreSettings)."""
+        obj = StoreSettings.get_solo()
+        ser = HardwareConfigSerializer(obj, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        obj.refresh_from_db()
+        return Response(HardwareConfigSerializer(obj).data)
+
 
 class ReceiptPayloadView(APIView):
     permission_classes = [IsAuthenticated, IsCashier]
@@ -198,7 +207,7 @@ class LabelQueueEscposView(APIView):
 
 
 class TestReceiptPrintView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request):
         import base64

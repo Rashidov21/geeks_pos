@@ -30,6 +30,10 @@ class Sale(models.Model):
 
     class Meta:
         ordering = ["-completed_at"]
+        indexes = [
+            models.Index(fields=["completed_at"]),
+            models.Index(fields=["status", "-completed_at"]),
+        ]
 
 
 class SaleLine(models.Model):

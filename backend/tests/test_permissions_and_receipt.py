@@ -60,7 +60,7 @@ def _mk_variant(stock_qty: int = 10) -> ProductVariant:
 
 
 @pytest.mark.django_db
-def test_debt_endpoints_cashier_forbidden(client):
+def test_debt_endpoints_cashier_allowed(client, monkeypatch):
     cashier = _mk_user("cashier_debt_perm", "CASHIER")
     client.force_login(cashier)
     variant = _mk_variant()
@@ -73,15 +73,15 @@ def test_debt_endpoints_cashier_forbidden(client):
     )
     customer = Customer.objects.get(phone_normalized="998900000111")
 
-    assert client.get("/api/debt/customers/search/?q=ali").status_code == 403
-    assert client.get("/api/debt/debts/open/").status_code == 403
+    assert client.get("/api/debt/customers/search/?q=ali").status_code == 200
+    assert client.get("/api/debt/debts/open/").status_code == 200
     assert (
         client.post(
             "/api/debt/customers/",
             data={"name": "Vali", "phone_normalized": "998900000222"},
             content_type="application/json",
         ).status_code
-        == 403
+        == 201
     )
     assert (
         client.patch(
@@ -89,15 +89,16 @@ def test_debt_endpoints_cashier_forbidden(client):
             data={"name": "Ali2", "phone_normalized": "998900000111"},
             content_type="application/json",
         ).status_code
-        == 403
+        == 200
     )
+    monkeypatch.setattr("integrations.services.send_whatsapp_reminder", lambda **kwargs: {"ok": True})
     assert (
         client.post(
             "/api/debt/payments/",
             data={"customer_id": str(customer.id), "amount": "100"},
             content_type="application/json",
         ).status_code
-        == 403
+        == 200
     )
 
 

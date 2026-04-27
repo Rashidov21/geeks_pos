@@ -7,18 +7,34 @@ import {
   History,
   Settings,
   LogOut,
+  PackageSearch,
+  Printer,
+  LineChart,
   type LucideIcon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-type Section = 'dashboard' | 'pos' | 'catalog' | 'inventory' | 'debts' | 'sales' | 'settings'
+export type Section =
+  | 'dashboard'
+  | 'pos'
+  | 'catalog'
+  | 'inventory'
+  | 'debts'
+  | 'sales'
+  | 'settings'
+  | 'stock'
+  | 'printer'
+  | 'shift'
 
 const ITEMS: Array<{ id: Section; labelKey: string; icon: LucideIcon }> = [
   { id: 'dashboard', labelKey: 'admin.sidebar.dashboard', icon: LayoutDashboard },
   { id: 'pos', labelKey: 'admin.sidebar.pos', icon: ShoppingCart },
+  { id: 'shift', labelKey: 'admin.sidebar.shift', icon: LineChart },
+  { id: 'stock', labelKey: 'admin.sidebar.stock', icon: PackageSearch },
   { id: 'inventory', labelKey: 'admin.sidebar.inventory', icon: Package },
   { id: 'catalog', labelKey: 'admin.sidebar.catalog', icon: Tags },
   { id: 'debts', labelKey: 'admin.sidebar.debts', icon: Wallet },
+  { id: 'printer', labelKey: 'admin.sidebar.printer', icon: Printer },
   { id: 'sales', labelKey: 'admin.sidebar.sales', icon: History },
   { id: 'settings', labelKey: 'admin.sidebar.settings', icon: Settings },
 ]
@@ -37,7 +53,7 @@ export function AdminSidebar({
   const { t, i18n } = useTranslation()
   const visibleItems =
     role === 'CASHIER'
-      ? ITEMS.filter((item) => ['pos', 'sales'].includes(item.id))
+      ? ITEMS.filter((item) => ['pos', 'shift', 'stock', 'debts', 'printer', 'sales'].includes(item.id))
       : ITEMS
 
   return (
@@ -103,4 +119,3 @@ export function AdminSidebar({
   )
 }
 
-export type { Section }

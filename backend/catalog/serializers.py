@@ -63,6 +63,36 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class CashierStockRowSerializer(serializers.ModelSerializer):
+    """Read-only catalog row for cashiers (stock visibility, no purchase_price)."""
+
+    product_name_uz = serializers.CharField(source="product.name_uz", read_only=True)
+    product_name_ru = serializers.CharField(source="product.name_ru", read_only=True)
+    size_label_uz = serializers.CharField(source="size.label_uz", read_only=True)
+    size_label_ru = serializers.CharField(source="size.label_ru", read_only=True)
+    color_label_uz = serializers.CharField(source="color.label_uz", read_only=True)
+    color_label_ru = serializers.CharField(source="color.label_ru", read_only=True)
+
+    class Meta:
+        model = ProductVariant
+        fields = [
+            "id",
+            "product",
+            "product_name_uz",
+            "product_name_ru",
+            "size",
+            "size_label_uz",
+            "size_label_ru",
+            "color",
+            "color_label_uz",
+            "color_label_ru",
+            "barcode",
+            "list_price",
+            "stock_qty",
+            "is_active",
+        ]
+
+
 class PosProductVariantSerializer(serializers.ModelSerializer):
     """POS / cashier: no purchase_price (financial field)."""
 

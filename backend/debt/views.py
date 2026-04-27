@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import IsAdminOrOwner
+from core.permissions import IsCashier
 
 from .models import Customer, Debt
 from .serializers import CustomerSerializer, DebtPaymentSerializer, DebtSerializer
@@ -16,7 +16,7 @@ from .services import record_debt_payment
 
 class CustomerSearchView(generics.ListAPIView):
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def get_queryset(self):
         q = (self.request.query_params.get("q") or "").strip()
@@ -30,25 +30,25 @@ class CustomerSearchView(generics.ListAPIView):
 class CustomerCreateView(generics.CreateAPIView):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
 
 class CustomerUpdateView(generics.UpdateAPIView):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
 
 class OpenDebtsView(generics.ListAPIView):
     serializer_class = DebtSerializer
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def get_queryset(self):
-        return Debt.objects.filter(status=Debt.Status.OPEN).select_related("customer")
+        return Debt.objects.filter(status=Debt.Status.OPEN).select_related("customer").order_by("due_date", "created_at")
 
 
 class DebtPaymentView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request):
         ser = DebtPaymentSerializer(data=request.data)
@@ -119,4 +119,6 @@ class DebtPaymentView(APIView):
             )
         except Exception:
             pass
-        return Response(DebtSerializer(touched, many=True).data)
+        touched_ids = [d.id for d in touched]
+        touched_rows = Debt.objects.filter(id__in=touched_ids).select_related("customer")
+        return Response(DebtSerializer(touched_rows, many=True).data)

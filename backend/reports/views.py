@@ -2,10 +2,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
-from django.utils.dateparse import parse_date
+from django.utils.dateparse import parse_date, parse_datetime
 
-from core.permissions import IsAdminOrOwner
-from .services import sales_metrics
+from core.permissions import IsAdminOrOwner, IsCashier
+from .services import cashier_x_report_metrics, default_shift_window, sales_metrics
 
 
 class DashboardSummaryView(APIView):
@@ -63,4 +63,37 @@ class DashboardSummaryView(APIView):
                 "range": {"from": from_date, "to": to_date, "year": year or None},
             }
         )
+
+
+class CashierXReportView(APIView):
+    """Interim shift-style totals for the logged-in cashier (not Z-report / no shift close)."""
+
+    permission_classes = [IsAuthenticated, IsCashier]
+
+    def get(self, request):
+        raw_from = (request.query_params.get("from") or "").strip()
+        raw_to = (request.query_params.get("to") or "").strip()
+        tz = timezone.get_current_timezone()
+        if raw_from:
+            from_dt = parse_datetime(raw_from)
+            if from_dt is None:
+                return Response({"code": "INVALID_FROM", "detail": "from must be ISO datetime"}, status=400)
+            if timezone.is_naive(from_dt):
+                from_dt = timezone.make_aware(from_dt, tz)
+        else:
+            from_dt, _ = default_shift_window()
+        if raw_to:
+            to_dt = parse_datetime(raw_to)
+            if to_dt is None:
+                return Response({"code": "INVALID_TO", "detail": "to must be ISO datetime"}, status=400)
+            if timezone.is_naive(to_dt):
+                to_dt = timezone.make_aware(to_dt, tz)
+        else:
+            to_dt = timezone.now()
+        if to_dt < from_dt:
+            return Response({"code": "INVALID_RANGE", "detail": "to must be >= from"}, status=400)
+        metrics = cashier_x_report_metrics(cashier_id=request.user.id, from_dt=from_dt, to_dt=to_dt)
+        if metrics is None:
+            return Response({"code": "USER_NOT_FOUND", "detail": "Cashier not found"}, status=404)
+        return Response(metrics)
 

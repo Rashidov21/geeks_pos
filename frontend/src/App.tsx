@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -62,15 +62,9 @@ import {
 import { AdminSidebar } from './components/AdminSidebar'
 import { AdminTopNavbar } from './components/AdminTopNavbar'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { CatalogPage } from './pages/CatalogPage'
-import { DashboardPage } from './pages/DashboardPage'
-import { DebtsPage } from './pages/DebtsPage'
-import { InventoryPage } from './pages/InventoryPage'
 import { ActivationPage } from './pages/ActivationPage'
 import { LoginPage } from './pages/LoginPage'
 import { PosPage } from './pages/PosPage'
-import { SalesHistoryPage } from './pages/SalesHistoryPage'
-import { SettingsPage } from './pages/SettingsPage'
 import { dispatchLabel, dispatchReceipt } from './utils/printingHub'
 
 const DEFAULT_LICENSE_OK: LicenseStatus = {
@@ -81,6 +75,43 @@ const DEFAULT_LICENSE_OK: LicenseStatus = {
   last_check_ok: true,
   last_check_message: '',
 }
+
+const DashboardPage = lazy(async () => {
+  const mod = await import('./pages/DashboardPage')
+  return { default: mod.DashboardPage }
+})
+const CatalogPage = lazy(async () => {
+  const mod = await import('./pages/CatalogPage')
+  return { default: mod.CatalogPage }
+})
+const InventoryPage = lazy(async () => {
+  const mod = await import('./pages/InventoryPage')
+  return { default: mod.InventoryPage }
+})
+const DebtsPage = lazy(async () => {
+  const mod = await import('./pages/DebtsPage')
+  return { default: mod.DebtsPage }
+})
+const SalesHistoryPage = lazy(async () => {
+  const mod = await import('./pages/SalesHistoryPage')
+  return { default: mod.SalesHistoryPage }
+})
+const SettingsPage = lazy(async () => {
+  const mod = await import('./pages/SettingsPage')
+  return { default: mod.SettingsPage }
+})
+const CashStockPage = lazy(async () => {
+  const mod = await import('./pages/CashStockPage')
+  return { default: mod.CashStockPage }
+})
+const PrinterQuickPage = lazy(async () => {
+  const mod = await import('./pages/PrinterQuickPage')
+  return { default: mod.PrinterQuickPage }
+})
+const ShiftXReportPage = lazy(async () => {
+  const mod = await import('./pages/ShiftXReportPage')
+  return { default: mod.ShiftXReportPage }
+})
 
 export default function App() {
   const { t } = useTranslation()
@@ -117,7 +148,41 @@ export default function App() {
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null)
   const [lastStockSyncAt, setLastStockSyncAt] = useState<string | null>(null)
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null)
+  const [hasSaleInProgress, setHasSaleInProgress] = useState(false)
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
   const isManager = role === 'ADMIN' || role === 'OWNER'
+
+  useEffect(() => {
+    function onSaleProgress(event: Event) {
+      const detail = (event as CustomEvent<{ inProgress?: boolean }>).detail
+      setHasSaleInProgress(Boolean(detail?.inProgress))
+    }
+    window.addEventListener('geekspos-sale-progress', onSaleProgress as EventListener)
+    return () => window.removeEventListener('geekspos-sale-progress', onSaleProgress as EventListener)
+  }, [])
+
+  useEffect(() => {
+    let unlisten: undefined | (() => void)
+    ;(async () => {
+      const tauriRuntime =
+        typeof window !== 'undefined' &&
+        typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
+      if (!tauriRuntime) return
+      try {
+        const { appWindow } = await import('@tauri-apps/api/window')
+        unlisten = await appWindow.onCloseRequested((event) => {
+          if (!hasSaleInProgress) return
+          event.preventDefault()
+          setShowExitConfirm(true)
+        })
+      } catch {
+        // ignore in web/dev mode
+      }
+    })()
+    return () => {
+      if (unlisten) unlisten()
+    }
+  }, [hasSaleInProgress])
 
   useEffect(() => {
     function preventAccidentalClose(e: KeyboardEvent) {
@@ -145,6 +210,16 @@ export default function App() {
   }
 
   async function refreshAdminData() {
+    if (role === 'CASHIER') {
+      try {
+        const [d, s] = await Promise.all([fetchOpenDebts(), fetchSalesHistory(salesFilter)])
+        setDebts(d)
+        setSales(s)
+      } catch {
+        /* ignore */
+      }
+      return
+    }
     if (!isManager) return
     const results = await Promise.allSettled([
       fetchCategories(),
@@ -229,7 +304,7 @@ export default function App() {
             ),
           }))
           // Debt sales are created from POS; keep admin debts list in sync without manual refresh.
-          if (isManager && events.some((e) => e.type === 'SALE' || e.type === 'RETURN')) {
+          if ((isManager || role === 'CASHIER') && events.some((e) => e.type === 'SALE' || e.type === 'RETURN')) {
             const nextDebts = await fetchOpenDebts()
             setDebts(nextDebts)
           }
@@ -239,7 +314,7 @@ export default function App() {
       })()
     }, 5000)
     return () => window.clearInterval(id)
-  }, [authed, isManager, lastStockSyncAt])
+  }, [authed, isManager, role, lastStockSyncAt])
 
   if (booting) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
   if (authed && !role) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
@@ -282,6 +357,7 @@ export default function App() {
   }
 
   return (
+    <>
     <BrowserRouter>
       <Routes>
         <Route
@@ -445,6 +521,38 @@ export default function App() {
         <Route path="*" element={<Navigate to={isManager ? '/admin/dashboard' : '/pos'} replace />} />
       </Routes>
     </BrowserRouter>
+    {showExitConfirm && (
+      <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3 text-slate-100">
+          <h3 className="text-lg font-semibold">Sotuv jarayoni davom etmoqda.</h3>
+          <p className="text-sm text-slate-300">Rostdan ham chiqmoqchimisiz?</p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600"
+              onClick={() => setShowExitConfirm(false)}
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="button"
+              className="touch-btn min-h-12 px-4 rounded-xl bg-red-700 border border-red-500"
+              onClick={async () => {
+                try {
+                  const { invoke } = await import('@tauri-apps/api/tauri')
+                  await invoke('request_app_exit')
+                } catch {
+                  window.close()
+                }
+              }}
+            >
+              Chiqish
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -528,10 +636,31 @@ function AdminPanel(props: {
   const location = useLocation()
   const navigate = useNavigate()
   const path = location.pathname.replace('/admin/', '').split('/')[0] || 'dashboard'
-  const active = (['dashboard', 'pos', 'catalog', 'inventory', 'debts', 'sales', 'settings'] as const).includes(
-    path as never,
-  )
-    ? (path as 'dashboard' | 'pos' | 'catalog' | 'inventory' | 'debts' | 'sales' | 'settings')
+  const active = (
+    [
+      'dashboard',
+      'pos',
+      'catalog',
+      'inventory',
+      'debts',
+      'sales',
+      'settings',
+      'stock',
+      'printer',
+      'shift',
+    ] as const
+  ).includes(path as never)
+    ? (path as
+        | 'dashboard'
+        | 'pos'
+        | 'catalog'
+        | 'inventory'
+        | 'debts'
+        | 'sales'
+        | 'settings'
+        | 'stock'
+        | 'printer'
+        | 'shift')
     : 'dashboard'
   const isCashier = props.role === 'CASHIER'
 
@@ -543,6 +672,10 @@ function AdminPanel(props: {
     }
     props.onLogout()
   }
+
+  const routeFallback = (
+    <div className="p-4 text-sm text-slate-400">{'Loading section...'}</div>
+  )
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex">
@@ -556,6 +689,7 @@ function AdminPanel(props: {
         {(active === 'dashboard' || active === 'settings') && (
           <AdminTopNavbar section={active} onLogout={handleAdminLogout} />
         )}
+        <Suspense fallback={routeFallback}>
         <Routes>
           <Route path="dashboard" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DashboardPage summary={props.dashboardSummary} licenseStatus={props.licenseStatus} filter={props.dashboardFilter} primaryChannel={props.integrationSettings?.primary_report_channel || 'both'} onFilter={props.onFilterDashboard} onSendZReport={props.onSendZReport} />} />
           <Route path="pos" element={<PosPage onLogout={props.onLogout} />} />
@@ -597,7 +731,20 @@ function AdminPanel(props: {
             onSetCount={props.onSetStocktakeCount}
             onApplyStocktake={props.onApplyStocktake}
           />} />
-          <Route path="debts" element={isCashier ? <Navigate to="/admin/sales" replace /> : <DebtsPage debts={props.debts} onRepay={props.onRepay} onUpdateCustomer={props.onUpdateDebtCustomer} onSendReminder={props.onSendDebtReminder} />} />
+          <Route
+            path="debts"
+            element={
+              <DebtsPage
+                debts={props.debts}
+                onRepay={props.onRepay}
+                onUpdateCustomer={props.onUpdateDebtCustomer}
+                onSendReminder={props.onSendDebtReminder}
+              />
+            }
+          />
+          <Route path="stock" element={<CashStockPage />} />
+          <Route path="printer" element={<PrinterQuickPage />} />
+          <Route path="shift" element={<ShiftXReportPage />} />
           <Route
             path="sales"
             element={
@@ -634,8 +781,9 @@ function AdminPanel(props: {
               />
             }
           />
-          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="*" element={<Navigate to={isCashier ? '/admin/sales' : '/admin/dashboard'} replace />} />
         </Routes>
+        </Suspense>
       </main>
     </div>
   )

@@ -43,6 +43,19 @@ def test_reports_summary_forbidden_for_cashier(client):
 
 
 @pytest.mark.django_db
+def test_cashier_x_report_ok_for_cashier(client):
+    cashier = _mk_user("cashier_xrep", "CASHIER")
+    client.force_login(cashier)
+    r = client.get("/api/reports/cashier-x/")
+    assert r.status_code == 200
+    j = r.json()
+    assert "cash_total" in j
+    assert "card_total" in j
+    assert "sales_count" in j
+    assert j["cashier_username"] == cashier.username
+
+
+@pytest.mark.django_db
 def test_inventory_receive_adjust_forbidden_for_cashier(client):
     cashier = _mk_user("cashier_inv", "CASHIER")
     variant = _mk_variant()

@@ -42,10 +42,17 @@ export async function dispatchPrint({ payloadBase64, kind, settings }: DispatchO
   const configured = chooseConfiguredName(kind, settings)
   const printers = await listInstalledPrinters()
 
-  // If list is unavailable, keep old behavior: send to configured/default spooler.
+  // Empty OS printer list: strict if nothing configured (avoid silent default spooler),
+  // soft path when a name is set in store settings (still try that queue).
   if (printers.length === 0) {
-    await printRawBase64(payloadBase64, configured || null)
-    return
+    if (configured) {
+      await printRawBase64(payloadBase64, configured)
+      return
+    }
+    const what = kind === 'receipt' ? 'chek' : 'yorliq'
+    throw new Error(
+      `Printer ulanmagan: Windows ro'yxati bo'sh va dukon sozlamalarida ${what} printeri ko'rsatilmagan.`,
+    )
   }
 
   const chosen =

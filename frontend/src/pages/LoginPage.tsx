@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { fetchLicenseStatus, fetchPinUsers, loginWithPin, type LicenseStatus } from '../api'
 import { getTauriMachineId } from '../utils/tauriMachineId'
 
-export function LoginPage({ onDone }: { onDone: () => void }) {
+export function LoginPage({ onDone }: { onDone: () => void | Promise<void> }) {
   const { t, i18n } = useTranslation()
   const [users, setUsers] = useState<Array<{ username: string; display_name: string; role: string; pin_enabled: boolean }>>([])
   const [u, setU] = useState('')
@@ -42,7 +42,7 @@ export function LoginPage({ onDone }: { onDone: () => void }) {
     setBusy(true)
     try {
       await loginWithPin(u, p)
-      onDone()
+      await onDone()
     } catch (ex: unknown) {
       const code = (ex as Error & { code?: string }).code
       setErr(t(`err.${code || 'INVALID_CREDENTIALS'}`, { defaultValue: t('msg.errorGeneric') }))

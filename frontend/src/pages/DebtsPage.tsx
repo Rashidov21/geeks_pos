@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import Decimal from 'decimal.js'
+import { List, type RowComponentProps } from 'react-window'
 import type { DebtRow } from '../api'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
@@ -23,13 +24,29 @@ export function DebtsPage({
   const [editPhone, setEditPhone] = useState('')
   const [busyCustomerId, setBusyCustomerId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null)
-  const totals = useMemo(() => {
-    const grouped: Record<string, Decimal> = {}
+  const groupedRows = useMemo(() => {
+    const grouped = new Map<string, { row: DebtRow; total: Decimal; count: number }>()
     for (const d of debts) {
-      grouped[d.customer] = (grouped[d.customer] ?? new Decimal(0)).plus(d.remaining_amount || '0')
+      const existing = grouped.get(d.customer)
+      if (!existing) {
+        grouped.set(d.customer, {
+          row: d,
+          total: new Decimal(d.remaining_amount || '0'),
+          count: 1,
+        })
+      } else {
+        existing.total = existing.total.plus(d.remaining_amount || '0')
+        existing.count += 1
+      }
     }
-    return grouped
+    return Array.from(grouped.entries()).map(([customerId, item]) => ({
+      customerId,
+      row: item.row,
+      total: item.total,
+      count: item.count,
+    }))
   }, [debts])
+  const useVirtualRows = groupedRows.length > 12
 
   return (
     <div className="p-4 space-y-4">
@@ -50,11 +67,9 @@ export function DebtsPage({
               <th className="text-right p-2">{t('admin.debts.reminder')}</th>
             </tr>
           </thead>
+          {!useVirtualRows && (
           <tbody>
-            {Object.entries(totals).map(([customerId, total]) => {
-              const row = debts.find((d) => d.customer === customerId)
-              if (!row) return null
-              const count = debts.filter((d) => d.customer === customerId).length
+            {groupedRows.map(({ customerId, total, row, count }) => {
               return (
                 <tr key={customerId} className="border-t border-slate-800">
                   <td className="p-2">
@@ -205,7 +220,7 @@ export function DebtsPage({
                 </tr>
               )
             })}
-            {debts.length === 0 && (
+            {groupedRows.length === 0 && (
               <tr>
                 <td colSpan={8} className="p-6 text-center text-slate-500">
                   {t('admin.debts.empty')}
@@ -213,7 +228,74 @@ export function DebtsPage({
               </tr>
             )}
           </tbody>
+          )}
         </table>
+        {useVirtualRows && (
+          <List
+            defaultHeight={Math.min(600, Math.max(240, groupedRows.length * 76))}
+            rowCount={groupedRows.length}
+            rowHeight={76}
+            style={{ height: Math.min(600, Math.max(240, groupedRows.length * 76)), width: '100%' }}
+            rowComponent={({ index, style, rows }: RowComponentProps<{ rows: typeof groupedRows }>) => {
+              const { customerId, row, count, total } = rows[index]
+              return (
+                <div style={style} className="grid grid-cols-[1.2fr_1fr_0.9fr_0.9fr_0.5fr_0.8fr_1.4fr_0.9fr] items-center border-b border-slate-800 px-2 text-sm">
+                  <div>{row.customer_name}</div>
+                  <div>{row.customer_phone}</div>
+                  <div>{new Date(row.created_at).toLocaleDateString()}</div>
+                  <div>{row.due_date ? new Date(row.due_date).toLocaleDateString() : t('admin.debts.noDueDate')}</div>
+                  <div className="text-right">{count}</div>
+                  <div className="text-right">{formatMoney(total.toFixed(0))}</div>
+                  <div className="inline-flex gap-2 justify-end">
+                    <input
+                      className="touch-btn min-h-10 px-3 rounded-xl bg-slate-950 border border-slate-700 w-28 text-sm"
+                      placeholder={t('admin.debts.amountPlaceholder')}
+                      value={amountByCustomer[customerId] ?? ''}
+                      onChange={(e) =>
+                        setAmountByCustomer((p) => ({ ...p, [customerId]: e.target.value }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      disabled={busyCustomerId === customerId}
+                      className="touch-btn min-h-10 px-4 rounded-xl bg-emerald-700 border border-emerald-500 text-sm font-medium"
+                      onClick={async () => {
+                        setBusyCustomerId(customerId)
+                        try {
+                          await onRepay(customerId, amountByCustomer[customerId] || '0')
+                          setToast({ kind: 'ok', message: t('admin.debts.repaySuccess') })
+                        } catch (e: unknown) {
+                          const code = (e as Error & { code?: string }).code
+                          setToast({ kind: 'err', message: t(`err.${code || 'DEBT_PAYMENT_FAILED'}`) })
+                        } finally {
+                          setBusyCustomerId(null)
+                        }
+                      }}
+                    >
+                      {t('admin.debts.repay')}
+                    </button>
+                  </div>
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      disabled={busyCustomerId === customerId}
+                      className="touch-btn min-h-10 px-4 rounded-xl bg-indigo-700 border border-indigo-500 text-sm"
+                      onClick={() => {
+                        setEditingCustomerId(customerId)
+                        setEditName(row.customer_name)
+                        setEditPhone(row.customer_phone)
+                      }}
+                    >
+                      {t('admin.catalog.edit')}
+                    </button>
+                  </div>
+                </div>
+              )
+            }}
+            rowProps={{ rows: groupedRows }}
+            className="border-t border-slate-800"
+          />
+        )}
       </div>
     </div>
   )

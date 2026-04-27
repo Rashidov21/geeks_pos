@@ -12,6 +12,7 @@ from core.permissions import IsAdminOrOwner, IsCashier
 from .models import Category, Color, Product, ProductVariant, Size
 from .serializers import (
     BulkGridSerializer,
+    CashierStockRowSerializer,
     CategorySerializer,
     ColorSerializer,
     PosPriceUpdateSerializer,
@@ -21,6 +22,12 @@ from .serializers import (
     SizeSerializer,
 )
 from .services import bulk_create_variant_grid
+
+
+class CatalogPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 200
 
 
 class CategoryListCreate(generics.ListCreateAPIView):
@@ -66,10 +73,6 @@ class ColorDetail(generics.RetrieveUpdateDestroyAPIView):
 class ProductListCreate(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
-    class CatalogPagination(PageNumberPagination):
-        page_size = 20
-        page_size_query_param = "page_size"
-        max_page_size = 200
 
     pagination_class = CatalogPagination
 
@@ -84,13 +87,34 @@ class ProductListCreate(generics.ListCreateAPIView):
         return qs.order_by("name_uz")
 
 
+class CashierStockListView(generics.ListAPIView):
+    """Paginated active variants for cashiers (read-only, no purchase_price)."""
+
+    serializer_class = CashierStockRowSerializer
+    permission_classes = [IsAuthenticated, IsCashier]
+    pagination_class = CatalogPagination
+
+    def get_queryset(self):
+        query = (self.request.query_params.get("q") or "").strip()
+        qs = ProductVariant.objects.select_related("product", "size", "color").filter(
+            is_active=True, deleted_at__isnull=True
+        )
+        if query:
+            qs = qs.filter(
+                Q(barcode__icontains=query)
+                | Q(product__name_uz__icontains=query)
+                | Q(product__name_ru__icontains=query)
+                | Q(size__label_uz__icontains=query)
+                | Q(size__label_ru__icontains=query)
+                | Q(color__label_uz__icontains=query)
+                | Q(color__label_ru__icontains=query)
+            )
+        return qs.order_by("product__name_uz", "barcode")
+
+
 class ProductVariantListCreate(generics.ListCreateAPIView):
     serializer_class = ProductVariantSerializer
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
-    class CatalogPagination(PageNumberPagination):
-        page_size = 20
-        page_size_query_param = "page_size"
-        max_page_size = 200
 
     pagination_class = CatalogPagination
 

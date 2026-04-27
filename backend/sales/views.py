@@ -6,9 +6,9 @@ from rest_framework.pagination import PageNumberPagination
 from django.http import HttpResponse
 from django.db.models import Q
 from django.utils import timezone
+from datetime import datetime, time, timedelta
 import csv
 from io import BytesIO
-from openpyxl import Workbook
 
 from core.exceptions import (
     DebtPolicyError,
@@ -45,6 +45,23 @@ def _has_sale_access(user, sale: Sale) -> bool:
     if _is_admin_or_owner(user):
         return True
     return sale.cashier_id == user.id
+
+
+def _date_start(v: str):
+    try:
+        d = datetime.strptime(v, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return timezone.make_aware(datetime.combine(d, time.min), timezone.get_current_timezone())
+
+
+def _date_end_exclusive(v: str):
+    try:
+        d = datetime.strptime(v, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    dt = datetime.combine(d, time.min) + timedelta(days=1)
+    return timezone.make_aware(dt, timezone.get_current_timezone())
 
 
 class CompleteSaleView(APIView):
@@ -99,7 +116,12 @@ class SaleDetailView(APIView):
         from .models import Sale
 
         try:
-            sale = Sale.objects.select_related("cashier").prefetch_related("lines__variant__product", "payments").get(
+            sale = Sale.objects.select_related("cashier").prefetch_related(
+                "lines__variant__product",
+                "lines__variant__size",
+                "lines__variant__color",
+                "payments",
+            ).get(
                 pk=pk
             )
         except Sale.DoesNotExist:
@@ -133,18 +155,24 @@ class SaleHistoryView(generics.ListAPIView):
         qs = super().get_queryset()
         if not _is_admin_or_owner(self.request.user):
             today = timezone.localdate()
-            qs = qs.filter(cashier=self.request.user, completed_at__date=today)
+            start_dt = timezone.make_aware(
+                datetime.combine(today, time.min), timezone.get_current_timezone()
+            )
+            qs = qs.filter(cashier=self.request.user, completed_at__gte=start_dt, completed_at__lt=start_dt + timedelta(days=1))
         from_date = self.request.query_params.get("from")
         to_date = self.request.query_params.get("to")
         query = (self.request.query_params.get("q") or "").strip()
         if from_date:
-            qs = qs.filter(completed_at__date__gte=from_date)
+            start_dt = _date_start(from_date)
+            if start_dt is not None:
+                qs = qs.filter(completed_at__gte=start_dt)
         if to_date:
-            qs = qs.filter(completed_at__date__lte=to_date)
+            end_dt = _date_end_exclusive(to_date)
+            if end_dt is not None:
+                qs = qs.filter(completed_at__lt=end_dt)
         if query:
             qs = qs.filter(
-                Q(id__icontains=query)
-                | Q(public_sale_no__icontains=query)
+                Q(public_sale_no__icontains=query)
                 | Q(cashier__username__icontains=query)
                 | Q(status__icontains=query)
             )
@@ -159,9 +187,13 @@ class SaleHistoryExportCsvView(APIView):
         to_date = request.query_params.get("to")
         qs = Sale.objects.select_related("cashier").all()
         if from_date:
-            qs = qs.filter(completed_at__date__gte=from_date)
+            start_dt = _date_start(from_date)
+            if start_dt is not None:
+                qs = qs.filter(completed_at__gte=start_dt)
         if to_date:
-            qs = qs.filter(completed_at__date__lte=to_date)
+            end_dt = _date_end_exclusive(to_date)
+            if end_dt is not None:
+                qs = qs.filter(completed_at__lt=end_dt)
 
         resp = HttpResponse(content_type="text/csv")
         resp["Content-Disposition"] = 'attachment; filename="sales_history.csv"'
@@ -198,13 +230,19 @@ class SaleHistoryExportXlsxView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrOwner]
 
     def get(self, request):
+        from openpyxl import Workbook
+
         from_date = request.query_params.get("from")
         to_date = request.query_params.get("to")
         qs = Sale.objects.select_related("cashier").all()
         if from_date:
-            qs = qs.filter(completed_at__date__gte=from_date)
+            start_dt = _date_start(from_date)
+            if start_dt is not None:
+                qs = qs.filter(completed_at__gte=start_dt)
         if to_date:
-            qs = qs.filter(completed_at__date__lte=to_date)
+            end_dt = _date_end_exclusive(to_date)
+            if end_dt is not None:
+                qs = qs.filter(completed_at__lt=end_dt)
 
         wb = Workbook()
         ws = wb.active

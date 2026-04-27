@@ -10,6 +10,11 @@ class Customer(models.Model):
     note = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["phone_normalized"]),
+        ]
+
 
 class Debt(models.Model):
     class Status(models.TextChoices):
@@ -35,3 +40,9 @@ class Debt(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["customer", "status", "due_date"]),
+        ]

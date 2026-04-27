@@ -32,7 +32,6 @@ class DebtSerializer(serializers.ModelSerializer):
             "customer",
             "customer_name",
             "customer_phone",
-            "originating_sale",
             "total_amount",
             "paid_amount",
             "remaining_amount",

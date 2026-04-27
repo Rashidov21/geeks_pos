@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { List, type RowComponentProps } from 'react-window'
 import type { BulkGridCell, Category, Color, Product, Size, Variant } from '../api'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
@@ -106,6 +107,7 @@ export function CatalogPage({
     [products, selectedBrand],
   )
   const maxPage = Math.max(1, Math.ceil(count / 20))
+  const useVirtualRows = variants.length > 12
   const [quickAdjust, setQuickAdjust] = useState<Variant | null>(null)
   const [quickDelta, setQuickDelta] = useState(0)
   const [queueOpen, setQueueOpen] = useState(false)
@@ -117,6 +119,8 @@ export function CatalogPage({
   const [defaultPurchase, setDefaultPurchase] = useState('0')
   const [defaultList, setDefaultList] = useState('0')
   const [addToPrintQueue, setAddToPrintQueue] = useState(true)
+  const [bulkStickerPrompt, setBulkStickerPrompt] = useState<null | { variantIds: string[]; copiesStr: string }>(null)
+  const [bulkStickerBusy, setBulkStickerBusy] = useState(false)
   const [numpadOpen, setNumpadOpen] = useState<null | { field: MatrixField; sizeId: string | 'all' }>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -251,11 +255,10 @@ export function CatalogPage({
     setBusy(true)
     try {
       const created = await onCreateVariantBulk({ product_id: productId, matrix })
-      if (addToPrintQueue && created.length > 0) {
-        const items = created.map((row) => ({ variant_id: row.id, copies: 1 }))
-        await onPrintStickerQueue(items, '40x30')
-      }
       setToast(t('admin.catalog.wizard.bulkSuccess'))
+      if (addToPrintQueue && created.length > 0) {
+        setBulkStickerPrompt({ variantIds: created.map((row) => row.id), copiesStr: '1' })
+      }
       setForm((p: WizardVariantForm) => ({
         ...p,
         product: productId,
@@ -675,6 +678,7 @@ export function CatalogPage({
               <th className="text-right p-2">{t('admin.catalog.action')}</th>
             </tr>
           </thead>
+          {!useVirtualRows && (
           <tbody>
             {variants.map((v) => (
               <tr key={v.id} className="border-t border-slate-800">
@@ -782,7 +786,101 @@ export function CatalogPage({
               </tr>
             )}
           </tbody>
+          )}
         </table>
+        {useVirtualRows && (
+          <List
+            defaultHeight={Math.min(620, Math.max(260, variants.length * 74))}
+            rowCount={variants.length}
+            rowHeight={74}
+            style={{ height: Math.min(620, Math.max(260, variants.length * 74)), width: '100%' }}
+            rowComponent={({ index, style, rows }: RowComponentProps<{ rows: Variant[] }>) => {
+              const v = rows[index]
+              return (
+                <div style={style} className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_0.8fr_2fr] items-center border-b border-slate-800 px-2 text-sm">
+                  <div>
+                    {i18n.language.startsWith('ru')
+                      ? (v as typeof v & { product_name_ru?: string }).product_name_ru || v.product_name_uz
+                      : v.product_name_uz}
+                  </div>
+                  <div>
+                    {i18n.language.startsWith('ru')
+                      ? (v as typeof v & { size_label_ru?: string }).size_label_ru || v.size_label_uz
+                      : v.size_label_uz}{' '}
+                    /{' '}
+                    {i18n.language.startsWith('ru')
+                      ? (v as typeof v & { color_label_ru?: string }).color_label_ru || v.color_label_uz
+                      : v.color_label_uz}
+                  </div>
+                  <div>{v.barcode}</div>
+                  <div className="text-right">{v.stock_qty}</div>
+                  <div className="text-right">{formatMoney(v.list_price)}</div>
+                  <div className="text-right">
+                    <div className="inline-flex gap-2">
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-2 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                        onClick={() => {
+                          setEditing(v)
+                          setEditPrice(v.list_price)
+                          setEditPurchase(v.purchase_price)
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-2 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                        onClick={() => void addToQueue(v.id)}
+                      >
+                        <PackagePlus className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-2 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                        onClick={async () => {
+                          try {
+                            await onPrintSticker(v.id, 1, '40x30')
+                            setToast(t('admin.catalog.stickerPrinted'))
+                          } catch (e: unknown) {
+                            const rawMessage = e instanceof Error ? e.message : String(e || '')
+                            setToast(rawMessage.startsWith('Printer ulanmagan:') ? rawMessage : t('err.LABEL_PRINT_FAILED'))
+                          }
+                        }}
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-2 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
+                        onClick={async () => {
+                          try {
+                            await onToggleVariant(v)
+                            setToast(t('admin.catalog.toggleSuccess'))
+                          } catch (e: unknown) {
+                            const code = (e as Error & { code?: string }).code
+                            setToast(t(`err.${code || 'API_ERROR'}`))
+                          }
+                        }}
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-2 rounded bg-red-900 border border-red-700 inline-flex items-center gap-1"
+                        onClick={() => setConfirmDeleteId(v.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            }}
+            rowProps={{ rows: variants }}
+            className="border-t border-slate-800"
+          />
+        )}
       </div>
       <div className="flex justify-end gap-2">
         <button
@@ -1064,6 +1162,80 @@ export function CatalogPage({
                 onClick={() => setNumpadOpen(null)}
               >
                 {t('admin.common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {bulkStickerPrompt && (
+        <div
+          className="fixed inset-0 z-40 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => {
+            if (!bulkStickerBusy) setBulkStickerPrompt(null)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal
+            className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-semibold">
+              {t('admin.catalog.wizard.stickerAfterBulkTitle', { count: bulkStickerPrompt.variantIds.length })}
+            </div>
+            <label className="block text-sm text-slate-400">
+              <span className="block mb-2">{t('admin.catalog.wizard.stickerAfterBulkCopies')}</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 tabular-nums"
+                value={bulkStickerPrompt.copiesStr}
+                onChange={(e) =>
+                  setBulkStickerPrompt((p) =>
+                    p ? { ...p, copiesStr: digitsOnly(e.target.value) || '1' } : p,
+                  )
+                }
+              />
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={bulkStickerBusy}
+                className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-700 disabled:opacity-40"
+                onClick={() => setBulkStickerPrompt(null)}
+              >
+                {t('admin.catalog.wizard.stickerAfterBulkNo')}
+              </button>
+              <button
+                type="button"
+                disabled={bulkStickerBusy}
+                className="touch-btn min-h-12 px-4 rounded-xl bg-emerald-700 border border-emerald-500 font-medium disabled:opacity-40"
+                onClick={() => {
+                  void (async () => {
+                    if (!bulkStickerPrompt) return
+                    const raw = digitsOnly(bulkStickerPrompt.copiesStr)
+                    const n = Math.max(1, Math.floor(Number(raw || '1')) || 1)
+                    setBulkStickerBusy(true)
+                    try {
+                      await onPrintStickerQueue(
+                        bulkStickerPrompt.variantIds.map((variant_id) => ({ variant_id, copies: n })),
+                        '40x30',
+                      )
+                      setBulkStickerPrompt(null)
+                    } catch (e: unknown) {
+                      const rawMessage = e instanceof Error ? e.message : String(e || '')
+                      if (rawMessage.startsWith('Printer ulanmagan:')) {
+                        setToast(rawMessage)
+                      } else {
+                        setToast(t('admin.catalog.wizard.bulkError'))
+                      }
+                    } finally {
+                      setBulkStickerBusy(false)
+                    }
+                  })()
+                }}
+              >
+                {bulkStickerBusy ? t('admin.catalog.wizard.stickerAfterBulkWorking') : t('admin.catalog.wizard.stickerAfterBulkYes')}
               </button>
             </div>
           </div>

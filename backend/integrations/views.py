@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import IsAdminOrOwner
+from core.permissions import IsAdminOrOwner, IsCashier
 from debt.models import Customer, Debt
 
 from .models import IntegrationSettings
@@ -59,7 +59,7 @@ class ZReportSendView(APIView):
 
 
 class WhatsAppDebtReminderView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminOrOwner]
+    permission_classes = [IsAuthenticated, IsCashier]
 
     def post(self, request):
         customer_id = request.data.get("customer_id")

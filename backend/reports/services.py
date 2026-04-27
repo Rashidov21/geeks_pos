@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, time
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.contrib.auth import get_user_model
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Sum
 from django.utils import timezone
 
@@ -194,3 +196,56 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
             for row in low_brands
         ],
     }
+
+
+def cashier_x_report_metrics(*, cashier_id, from_dt, to_dt):
+    """
+    Interim (X-style) totals for one cashier between datetimes (completed sales only).
+    """
+    User = get_user_model()
+    try:
+        cashier = User.objects.get(pk=cashier_id)
+    except User.DoesNotExist:
+        return None
+    completed = Sale.objects.filter(
+        status=Sale.Status.COMPLETED,
+        cashier=cashier,
+        completed_at__gte=from_dt,
+        completed_at__lte=to_dt,
+    )
+    sales_count = completed.count()
+    sales_amount = q_money(completed.aggregate(total=Sum("grand_total"))["total"])
+    total_discounts = q_money(completed.aggregate(total=Sum("discount_total"))["total"])
+    cash_total = q_money(
+        Payment.objects.filter(sale__in=completed, method=Payment.Method.CASH).aggregate(total=Sum("amount"))["total"]
+    )
+    card_total = q_money(
+        Payment.objects.filter(sale__in=completed, method=Payment.Method.CARD).aggregate(total=Sum("amount"))["total"]
+    )
+    debt_total = q_money(
+        Payment.objects.filter(sale__in=completed, method=Payment.Method.DEBT).aggregate(total=Sum("amount"))["total"]
+    )
+    avg_check = q_money((sales_amount / sales_count) if sales_count else 0)
+    return {
+        "cashier_username": cashier.username or "",
+        "sales_count": sales_count,
+        "sales_amount": str(sales_amount),
+        "total_discounts": str(total_discounts),
+        "cash_total": str(cash_total),
+        "card_total": str(card_total),
+        "debt_total": str(debt_total),
+        "avg_check": str(avg_check),
+        "range": {
+            "from": timezone.localtime(from_dt).isoformat(),
+            "to": timezone.localtime(to_dt).isoformat(),
+        },
+    }
+
+
+def default_shift_window():
+    """Local calendar day [00:00, now] as aware datetimes."""
+    tz = timezone.get_current_timezone()
+    today = timezone.localdate()
+    start = timezone.make_aware(datetime.combine(today, time.min), tz)
+    end = timezone.now()
+    return start, end

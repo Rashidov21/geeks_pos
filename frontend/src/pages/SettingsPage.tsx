@@ -299,6 +299,9 @@ export function SettingsPage({
           >
             <div className="grid gap-4 xl:grid-cols-3 items-start">
               <div className="space-y-4 xl:col-span-2">
+              <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 text-xs text-slate-400">
+                {t('admin.settings.headerHint')}
+              </div>
             <div className={sectionCardCls}>
               <div className="inline-flex items-center gap-2 text-slate-200">
                 <Cog className="h-4 w-4 text-emerald-400" />
@@ -669,17 +672,9 @@ export function SettingsPage({
                 setForm({ ...form, lock_timeout_minutes: Math.max(1, Number(e.target.value || 5)) })
               }
             />
-            <button
-              type="submit"
-              disabled={busy}
-              className="touch-btn min-h-14 px-6 rounded-xl bg-emerald-700 border border-emerald-500 disabled:opacity-40 text-base font-semibold"
-            >
-              {busy ? t('admin.common.saving') : t('admin.settings.saveSettings')}
-            </button>
+         
             </div>
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 text-xs text-slate-400">
-                {t('admin.settings.headerHint')}
-              </div>
+            
               <div className="flex flex-wrap gap-2 items-center rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
         <HardDriveDownload className="h-5 w-5 text-emerald-400 shrink-0" />
         <div className="mr-auto">
@@ -716,6 +711,13 @@ export function SettingsPage({
       </div>
               </div>
             </div>
+            <button
+              type="submit"
+              disabled={busy}
+              className="touch-btn min-h-14 px-6 rounded-xl bg-emerald-700 border border-emerald-500 disabled:opacity-40 text-base font-semibold"
+            >
+              {busy ? t('admin.common.saving') : t('admin.settings.saveSettings')}
+            </button>
           </form>
         </>
       )}

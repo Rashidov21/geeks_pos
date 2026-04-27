@@ -1,5 +1,26 @@
-/** Empty string = same origin (Vite dev proxy `/api` → Django). */
-const API = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
+/** In Tauri/bundled mode default to loopback backend, in Vite dev keep same-origin proxy. */
+const RUNTIME_API_KEY = 'geeks_pos_runtime_api_base'
+
+function resolveApiBase(): string {
+  try {
+    const runtime = localStorage.getItem(RUNTIME_API_KEY)?.trim()
+    if (runtime) return runtime
+  } catch {
+    // ignore
+  }
+  const configured = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
+  if (configured) return configured
+  const tauriRuntime =
+    typeof window !== 'undefined' && typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
+  if (tauriRuntime || import.meta.env.PROD) return 'http://127.0.0.1:8000'
+  return ''
+}
+
+const API = {
+  toString() {
+    return resolveApiBase()
+  },
+} as unknown as string
 
 export class AppError extends Error {
   code: string
@@ -26,9 +47,24 @@ function getUiLanguageHeader(): string {
   return 'uz'
 }
 
+async function logApiError(message: string): Promise<void> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/tauri')
+    await invoke('append_app_log', { level: 'ERROR', message: `API: ${message}` })
+  } catch {
+    // ignore logging errors in browser/dev
+  }
+}
+
 async function parseErrorResponse(r: Response, fallbackCode: string): Promise<AppError> {
   const j = (await r.json().catch(() => ({}))) as { code?: string; detail?: string }
-  return new AppError(j.code || fallbackCode, j.detail)
+  let code = j.code || fallbackCode
+  const detail = j.detail
+  if (r.status >= 500 && !j.code) {
+    code = 'BACKEND_INIT_REQUIRED'
+  }
+  void logApiError(`${r.status} ${r.url} code=${code} detail=${detail || '-'}`)
+  return new AppError(code, detail)
 }
 
 /** Catalog variant row returned to POS (no purchase_price). */
@@ -296,6 +332,36 @@ export type Variant = {
   deleted_at: string | null
 }
 
+/** Cashier read-only stock list (no purchase_price). */
+export type CashierStockVariant = {
+  id: string
+  product: string
+  product_name_uz: string
+  product_name_ru: string
+  size: string
+  size_label_uz: string
+  size_label_ru: string
+  color: string
+  color_label_uz: string
+  color_label_ru: string
+  barcode: string | null
+  list_price: string
+  stock_qty: number
+  is_active: boolean
+}
+
+export type CashierXReport = {
+  cashier_username: string
+  sales_count: number
+  sales_amount: string
+  total_discounts: string
+  cash_total: string
+  card_total: string
+  debt_total: string
+  avg_check: string
+  range: { from: string; to: string }
+}
+
 export type Size = { id: string; value: string; label_uz: string; label_ru?: string }
 export type Color = { id: string; value: string; label_uz: string; label_ru?: string }
 export type Paginated<T> = {
@@ -410,6 +476,21 @@ export async function fetchVariants(params?: {
   const r = await fetch(`${API}/api/catalog/variants/${qs}`, { credentials: 'include' })
   if (!r.ok) throw new Error('FETCH_VARIANTS_FAILED')
   return toPaginated<Variant>(await r.json())
+}
+
+export async function fetchCashierStockVariants(params?: {
+  q?: string
+  page?: number
+  pageSize?: number
+}): Promise<Paginated<CashierStockVariant>> {
+  const q = new URLSearchParams()
+  if (params?.q) q.set('q', params.q)
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('page_size', String(params.pageSize))
+  const qs = q.toString() ? `?${q.toString()}` : ''
+  const r = await fetch(`${API}/api/catalog/variants/cashier-stock/${qs}`, { credentials: 'include' })
+  if (!r.ok) throw await parseErrorResponse(r, 'FETCH_CASHIER_STOCK_FAILED')
+  return toPaginated<CashierStockVariant>(await r.json())
 }
 
 export async function fetchSizes(): Promise<Size[]> {
@@ -835,6 +916,28 @@ export async function fetchHardwareConfig(): Promise<HardwareConfig> {
   const r = await fetch(`${API}/api/printing/hardware-config/`, { credentials: 'include' })
   if (!r.ok) throw await parseErrorResponse(r, 'FETCH_HARDWARE_CONFIG_FAILED')
   return r.json()
+}
+
+export async function patchHardwareConfig(data: Partial<HardwareConfig>): Promise<HardwareConfig> {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const r = await fetch(`${API}/api/printing/hardware-config/`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) throw await parseErrorResponse(r, 'PATCH_HARDWARE_CONFIG_FAILED')
+  return r.json() as Promise<HardwareConfig>
+}
+
+export async function fetchCashierXReport(params?: { from?: string; to?: string }): Promise<CashierXReport> {
+  const q = new URLSearchParams()
+  if (params?.from) q.set('from', params.from)
+  if (params?.to) q.set('to', params.to)
+  const qs = q.toString() ? `?${q.toString()}` : ''
+  const r = await fetch(`${API}/api/reports/cashier-x/${qs}`, { credentials: 'include' })
+  if (!r.ok) throw await parseErrorResponse(r, 'FETCH_CASHIER_X_REPORT_FAILED')
+  return r.json() as Promise<CashierXReport>
 }
 
 export async function testReceiptPrintPayload() {

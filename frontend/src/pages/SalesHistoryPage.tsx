@@ -1,6 +1,7 @@
 import type { SaleHistoryRow } from '../api'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { List, type RowComponentProps } from 'react-window'
 import { formatMoney } from '../utils/money'
 import { ActionToast } from '../components/ActionToast'
 import { playUiSound } from '../utils/uiSound'
@@ -41,6 +42,7 @@ export function SalesHistoryPage({
   const [voidBusy, setVoidBusy] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
   const maxPage = Math.max(1, Math.ceil(count / 20))
+  const useVirtualRows = sales.length > 12
 
   useEffect(() => {
     const timer = setTimeout(() => onFilter(from, to, query.trim()), 300)
@@ -113,6 +115,7 @@ export function SalesHistoryPage({
               <th className="text-right p-2">{t('admin.sales.action')}</th>
             </tr>
           </thead>
+          {!useVirtualRows && (
           <tbody>
             {sales.map((s) => (
               <tr key={s.id} className="border-t border-slate-800">
@@ -165,7 +168,64 @@ export function SalesHistoryPage({
               </tr>
             )}
           </tbody>
+          )}
         </table>
+        {useVirtualRows && (
+          <List
+            defaultHeight={Math.min(560, Math.max(220, sales.length * 64))}
+            rowCount={sales.length}
+            rowHeight={64}
+            style={{ height: Math.min(560, Math.max(220, sales.length * 64)), width: '100%' }}
+            rowComponent={({ index, style, rows }: RowComponentProps<{ rows: SaleHistoryRow[] }>) => {
+              const s = rows[index]
+              return (
+                <div style={style} className="grid grid-cols-[1.1fr_1fr_1.2fr_0.9fr_0.8fr_1.7fr] items-center border-b border-slate-800 px-2 text-sm">
+                  <div>{s.public_sale_no || s.id.slice(0, 8)}</div>
+                  <div>{s.cashier_username}</div>
+                  <div>{new Date(s.completed_at).toLocaleString()}</div>
+                  <div>{t(`status.${s.status}`, { defaultValue: s.status })}</div>
+                  <div className="text-right">{formatMoney(s.grand_total)}</div>
+                  <div className="text-right">
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="touch-btn min-h-10 px-3 rounded-xl bg-slate-800 border border-slate-600 text-sm font-medium"
+                        onClick={async () => {
+                          try {
+                            await onReprint(s.id)
+                            setActionToast({ kind: 'ok', message: t('admin.sales.reprintSuccess') })
+                          } catch (e: unknown) {
+                            const rawMessage = e instanceof Error ? e.message : String(e || '')
+                            if (rawMessage.startsWith('Printer ulanmagan:')) {
+                              setActionToast({ kind: 'err', message: rawMessage })
+                              return
+                            }
+                            const code = (e as Error & { code?: string }).code
+                            const message = t(`err.${code || 'PRINT_FAILED'}`, { defaultValue: t('msg.printFailed') })
+                            setActionToast({ kind: 'err', message })
+                          }
+                        }}
+                      >
+                        {t('admin.sales.reprint')}
+                      </button>
+                      {canVoid && s.status !== 'VOIDED' && (
+                        <button
+                          type="button"
+                          className="touch-btn min-h-10 px-3 rounded-xl bg-red-800 border border-red-600 text-sm font-medium"
+                          onClick={() => setVoiding(s)}
+                        >
+                          {t('admin.sales.void')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            }}
+            rowProps={{ rows: sales }}
+            className="border-t border-slate-800"
+          />
+        )}
       </div>
       <div className="flex justify-end gap-2">
         <button

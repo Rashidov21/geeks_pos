@@ -56,7 +56,6 @@ class SaleHistorySerializer(serializers.ModelSerializer):
             "subtotal",
             "discount_total",
             "grand_total",
-            "note",
         ]
 
 

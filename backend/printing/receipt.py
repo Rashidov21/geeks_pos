@@ -1,8 +1,5 @@
 ﻿from decimal import Decimal, ROUND_HALF_UP
 
-from escpos.printer import Dummy
-from PIL import Image
-
 from .models import StoreSettings
 
 
@@ -177,6 +174,8 @@ def receipt_plain_text(receipt: dict) -> str:
 
 
 def _load_logo_bw(settings: StoreSettings):
+    from PIL import Image
+
     if not settings.logo:
         return None
     try:
@@ -196,6 +195,8 @@ def _load_logo_bw(settings: StoreSettings):
 
 
 def receipt_escpos_bytes(receipt: dict) -> bytes:
+    from escpos.printer import Dummy
+
     settings = StoreSettings.get_solo()
 
     p = Dummy()
@@ -237,6 +238,8 @@ def receipt_escpos_bytes(receipt: dict) -> bytes:
 
 
 def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> bytes:
+    from escpos.printer import Dummy
+
     settings = StoreSettings.get_solo()
     p = Dummy()
     try:
