@@ -20,6 +20,7 @@ import {
 } from '../api'
 import { usePosStore, type PayMode, type SuspendedCart } from '../store/posStore'
 import { formatMoney } from '../utils/money'
+import { buildCompleteSaleFingerprintInput, hashSaleIdempotencyKey64 } from '../utils/saleFingerprint'
 import { dispatchReceipt } from '../utils/printingHub'
 import { TouchNumpad } from '../components/TouchNumpad'
 import { ActionToast } from '../components/ActionToast'
@@ -118,6 +119,8 @@ function calcGrand(subtotal: Decimal, discount: Decimal): Decimal {
 
 const AFTER_SCAN_FOCUS_KEY = 'pos_after_scan_focus'
 const LOW_STOCK_THRESHOLD = 5
+/** Ignore identical barcode scans within this window (keyboard wedge duplicates). */
+const SCAN_DEBOUNCE_MS = 200
 
 type NumpadCtx = { kind: 'discount' } | { kind: 'payment'; rowId: string }
 
@@ -135,6 +138,11 @@ export function PosPage({
   const scanRef = useRef<HTMLInputElement>(null)
   const lastQtyCellRef = useRef<HTMLDivElement>(null)
   const pendingQtyFocus = useRef(false)
+  /** Synchronous guard: React `completing` state can lag one frame behind rapid double-submit. */
+  const completeInFlightRef = useRef(false)
+  /** Bumps after each successful sale so identical cart contents still get a new idempotency key. */
+  const idempotencyGenRef = useRef(0)
+  const lastScanRef = useRef<{ code: string; at: number } | null>(null)
   const [buffer, setBuffer] = useState('')
   const [toast, setToast] = useState<{ kind: 'err' | 'ok'; msg: string } | null>(null)
   const [banner, setBanner] = useState<string | null>(null)
@@ -549,6 +557,14 @@ export function PosPage({
   async function handleScanSubmit(code: string) {
     const c = code.trim()
     if (!c) return
+    const now = Date.now()
+    const prev = lastScanRef.current
+    if (prev && prev.code === c && now - prev.at < SCAN_DEBOUNCE_MS) {
+      setBuffer('')
+      safeRefocus()
+      return
+    }
+    lastScanRef.current = { code: c, at: now }
     try {
       const v = await fetchVariantByBarcode(c)
       setBuffer('')

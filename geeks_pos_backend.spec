@@ -1,11 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = []
+hiddenimports = ['config', 'config.settings', 'config.urls', 'config.wsgi', 'dotenv']
 hiddenimports += collect_submodules('django')
 hiddenimports += collect_submodules('waitress')
 hiddenimports += collect_submodules('rest_framework')
 hiddenimports += collect_submodules('corsheaders')
+hiddenimports += collect_submodules('core')
+hiddenimports += collect_submodules('accounts')
+hiddenimports += collect_submodules('catalog')
+hiddenimports += collect_submodules('inventory')
+hiddenimports += collect_submodules('sales')
+hiddenimports += collect_submodules('debt')
+hiddenimports += collect_submodules('printing')
+hiddenimports += collect_submodules('sync')
+hiddenimports += collect_submodules('reports')
+hiddenimports += collect_submodules('integrations')
+hiddenimports += collect_submodules('licensing')
 
 
 a = Analysis(

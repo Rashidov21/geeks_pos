@@ -2,8 +2,17 @@
 import { initReactI18next } from 'react-i18next'
 
 const DEFAULT_LANG = 'uz'
-const persistedLang =
-  typeof window !== 'undefined' ? window.localStorage.getItem('geeks_pos_lang') : null
+
+function readPersistedLang(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem('geeks_pos_lang')
+  } catch {
+    return null
+  }
+}
+
+const persistedLang = readPersistedLang()
 
 void i18n.use(initReactI18next).init({
   resources: {},
@@ -23,11 +32,19 @@ export async function loadLocale(lang: string) {
 
 i18n.on('languageChanged', (lng) => {
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem('geeks_pos_lang', lng)
+    try {
+      window.localStorage.setItem('geeks_pos_lang', lng)
+    } catch {
+      // storage blocked
+    }
   }
-  void loadLocale(lng)
+  void loadLocale(lng).catch((err) => {
+    console.warn('loadLocale failed', err)
+  })
 })
 
-void loadLocale(persistedLang || DEFAULT_LANG)
+void loadLocale(persistedLang || DEFAULT_LANG).catch((err) => {
+  console.warn('initial loadLocale failed', err)
+})
 
 export default i18n

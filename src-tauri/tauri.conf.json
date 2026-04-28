@@ -11,14 +11,19 @@
   },
   "tauri": {
     "allowlist": {
-      "all": true,
       "http": {
-        "all": true,
         "request": true,
         "scope": [
-          "http://127.0.0.1/*",
-          "http://localhost/*"
+          "http://127.0.0.1/**",
+          "http://localhost/**",
+          "https://tauri.localhost/**"
         ]
+      },
+      "shell": {
+        "open": true
+      },
+      "window": {
+        "all": true
       }
     },
     "bundle": {
@@ -59,7 +64,7 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src ipc: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://tauri.localhost 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:"
     },
     "updater": {
       "active": false

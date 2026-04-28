@@ -10,6 +10,35 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / ".env", override=False)
 load_dotenv(BASE_DIR / ".env", override=False)
 
+
+def _resolve_writable_app_home() -> Path:
+    """
+    Prefer %APPDATA%\\GeeksPOS, then %LOCALAPPDATA%\\GeeksPOS, then ~/GeeksPOS, then repo-local.
+    """
+    candidates: list[Path] = []
+    if os.environ.get("APPDATA"):
+        candidates.append(Path(os.environ["APPDATA"]) / "GeeksPOS")
+    if os.environ.get("LOCALAPPDATA"):
+        candidates.append(Path(os.environ["LOCALAPPDATA"]) / "GeeksPOS")
+    candidates.append(Path.home() / "GeeksPOS")
+    candidates.append(BASE_DIR / ".geeks_pos")
+
+    last_err: OSError | None = None
+    for base in candidates:
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            probe = base / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return base
+        except OSError as exc:
+            last_err = exc
+            continue
+    raise RuntimeError(
+        "GeeksPOS: could not create a writable data directory. "
+        f"Last error: {last_err}"
+    ) from last_err
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-change-in-production-geeks-pos-mvp")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 if not DEBUG and (
@@ -71,9 +100,8 @@ TEMPLATES = [
     },
 ]
 
-APPDATA_ROOT = Path(os.environ.get("APPDATA", str(BASE_DIR)))
-APP_HOME_DIR = APPDATA_ROOT / "GeeksPOS"
-APP_HOME_DIR.mkdir(parents=True, exist_ok=True)
+APP_HOME_DIR = _resolve_writable_app_home()
+APPDATA_ROOT = APP_HOME_DIR.parent
 DB_PATH = Path(os.environ.get("GEEKS_POS_DB_PATH", str(APP_HOME_DIR / "db.sqlite3")))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 LEGACY_DB_PATH = BASE_DIR / "db.sqlite3"

@@ -28,6 +28,8 @@ use windows_sys::Win32::System::Power::{
 struct BackendState {
     child: Mutex<Option<Child>>,
     port: Mutex<u16>,
+    /// Set when backend failed to start; cleared on success. UI can read via `get_backend_bootstrap_error`.
+    bootstrap_error: Mutex<Option<String>>,
 }
 
 fn backend_candidate_names() -> Vec<&'static str> {
@@ -47,11 +49,49 @@ fn backend_candidate_names() -> Vec<&'static str> {
 
 fn app_home_dir() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        return PathBuf::from(appdata).join("GeeksPOS");
+        let p = PathBuf::from(appdata).join("GeeksPOS");
+        let _ = fs::create_dir_all(&p);
+        return p;
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let p = PathBuf::from(local).join("GeeksPOS");
+        let _ = fs::create_dir_all(&p);
+        return p;
+    }
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let p = PathBuf::from(home).join("GeeksPOS");
+        let _ = fs::create_dir_all(&p);
+        return p;
     }
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(".geeks_pos")
+}
+
+fn backend_boot_log_path() -> PathBuf {
+    app_home_dir().join("logs").join("backend_boot.log")
+}
+
+/// Read backend_boot.log for support hints (e.g. AppRegistryNotReady).
+fn boot_log_failure_hint() -> Option<String> {
+    let path = backend_boot_log_path();
+    let mut f = File::open(path).ok()?;
+    let mut s = String::new();
+    f.read_to_string(&mut s).ok()?;
+    let tail = if s.len() > 16_384 {
+        &s[s.len() - 16_384..]
+    } else {
+        &s
+    };
+    if tail.contains("AppRegistryNotReady") {
+        return Some(
+            "Django bootstrap xatosi (AppRegistryNotReady). Migratsiya django.setup()dan keyin ishlashi kerak — backend/sidecar yangilang.".to_string(),
+        );
+    }
+    if tail.contains("BOOTSTRAP_FAIL") || tail.contains("Traceback") {
+        return Some("backend_boot.log da Traceback bor — migratsiya/bootstrap xatosi bo‘lishi mumkin.".to_string());
+    }
+    None
 }
 
 fn append_log_line(level: &str, message: &str) {
@@ -347,7 +387,7 @@ fn pick_backend_port(preferred: u16) -> u16 {
     preferred
 }
 
-fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
+fn backend_command(app: &tauri::AppHandle, port: u16) -> Result<Command, String> {
     let waitress_threads = std::env::var("WAITRESS_THREADS").unwrap_or_else(|_| "2".to_string());
     let secret_key = runtime_secret_key();
     if let Some(sidecar) = backend_sidecar_path(app) {
@@ -363,43 +403,55 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
             .env("DJANGO_SECRET_KEY", &secret_key)
             .env("PYTHONUNBUFFERED", "1")
             .env("WAITRESS_THREADS", &waitress_threads);
-        return cmd;
-    }
-    let script = backend_script_path();
-    append_log_line("INFO", &format!("Starting python backend: {}", script.display()));
-    #[cfg(windows)]
-    {
-        let mut cmd = Command::new("py");
-        cmd.arg("-3")
-            .arg(script)
-            .arg("--host")
-            .arg("127.0.0.1")
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--threads")
-            .arg(&waitress_threads)
-            .env("DJANGO_DEBUG", "0")
-            .env("DJANGO_SECRET_KEY", &secret_key)
-            .env("PYTHONUNBUFFERED", "1")
-            .env("WAITRESS_THREADS", &waitress_threads);
-        return cmd;
+        return Ok(cmd);
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(debug_assertions))]
     {
-        let mut cmd = Command::new("python3");
-        cmd.arg(script)
-            .arg("--host")
-            .arg("127.0.0.1")
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--threads")
-            .arg(&waitress_threads)
-            .env("DJANGO_DEBUG", "0")
-            .env("DJANGO_SECRET_KEY", &secret_key)
-            .env("PYTHONUNBUFFERED", "1")
-            .env("WAITRESS_THREADS", &waitress_threads);
-        return cmd;
+        return Err(
+            "Backend sidecar (geeks_pos_backend.exe) topilmadi — bu production build uchun majburiy. Dasturni to‘liq o‘rnating yoki qayta yig‘ing."
+                .to_string(),
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let script = backend_script_path();
+        append_log_line("INFO", &format!("Starting python backend: {}", script.display()));
+        #[cfg(windows)]
+        {
+            let mut cmd = Command::new("py");
+            cmd.arg("-3")
+                .arg(script)
+                .arg("--host")
+                .arg("127.0.0.1")
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--threads")
+                .arg(&waitress_threads)
+                .env("DJANGO_DEBUG", "0")
+                .env("DJANGO_SECRET_KEY", &secret_key)
+                .env("PYTHONUNBUFFERED", "1")
+                .env("WAITRESS_THREADS", &waitress_threads);
+            return Ok(cmd);
+        }
+
+        #[cfg(not(windows))]
+        {
+            let mut cmd = Command::new("python3");
+            cmd.arg(script)
+                .arg("--host")
+                .arg("127.0.0.1")
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--threads")
+                .arg(&waitress_threads)
+                .env("DJANGO_DEBUG", "0")
+                .env("DJANGO_SECRET_KEY", &secret_key)
+                .env("PYTHONUNBUFFERED", "1")
+                .env("WAITRESS_THREADS", &waitress_threads);
+            return Ok(cmd);
+        }
     }
 }
 
@@ -411,6 +463,9 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
     }
     if health_ok(selected_port) {
         append_log_line("INFO", "health_ok_existing");
+        if let Ok(mut g) = state.bootstrap_error.lock() {
+            *g = None;
+        }
         return Ok(());
     }
 
@@ -421,7 +476,12 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
             .map_err(|_| "Backend mutex poisoned".to_string())?;
         if let Some(child) = lock.as_mut() {
             match child.try_wait() {
-                Ok(None) => return Ok(()),
+                Ok(None) => {
+                    if let Ok(mut g) = state.bootstrap_error.lock() {
+                        *g = None;
+                    }
+                    return Ok(());
+                }
                 Ok(Some(_)) => {
                     *lock = None;
                 }
@@ -433,7 +493,10 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
         }
     }
 
-    let mut cmd = backend_command(app, selected_port);
+    let mut cmd = backend_command(app, selected_port).map_err(|e| {
+        append_log_line("ERROR", &format!("backend_command_failed: {e}"));
+        e
+    })?;
     let boot_log_path = app_home_dir().join("logs").join("backend_boot.log");
     let _ = fs::create_dir_all(boot_log_path.parent().unwrap_or_else(|| std::path::Path::new(".")));
     let log_file = OpenOptions::new()
@@ -471,6 +534,9 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
     for _ in 0..70 {
         if health_ok(selected_port) {
             append_log_line("INFO", "health_ok_after_spawn");
+            if let Ok(mut g) = state.bootstrap_error.lock() {
+                *g = None;
+            }
             return Ok(());
         }
         {
@@ -486,9 +552,14 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
                             &format!("backend_exited_early status={status}"),
                         );
                         *lock = None;
-                        return Err(format!(
-                            "Backend start failed early (status: {status}). Check logs/backend_boot.log"
-                        ));
+                        let mut msg = format!(
+                            "Backend start failed early (status: {status}). Migration/bootstrap xatosi bo‘lishi mumkin — GeeksPOS/logs/backend_boot.log ni tekshiring."
+                        );
+                        if let Some(h) = boot_log_failure_hint() {
+                            msg.push_str("\n\n");
+                            msg.push_str(&h);
+                        }
+                        return Err(msg);
                     }
                     Ok(None) => {}
                     Err(e) => {
@@ -501,7 +572,13 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
     }
     stop_backend(state);
     append_log_line("ERROR", "bootstrap_failed_healthcheck");
-    Err("Backend healthcheck timed out. Check logs/backend_boot.log".to_string())
+    let mut msg =
+        "Backend healthcheck timed out. GeeksPOS/logs/backend_boot.log ni tekshiring.".to_string();
+    if let Some(h) = boot_log_failure_hint() {
+        msg.push_str("\n\n");
+        msg.push_str(&h);
+    }
+    Err(msg)
 }
 
 #[tauri::command]
@@ -516,6 +593,30 @@ fn get_backend_base_url(state: tauri::State<BackendState>) -> Result<String, Str
 #[tauri::command]
 fn request_app_exit(app: tauri::AppHandle) -> Result<(), String> {
     app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_backend_bootstrap_error(state: tauri::State<BackendState>) -> Result<Option<String>, String> {
+    state
+        .bootstrap_error
+        .lock()
+        .map(|g| g.clone())
+        .map_err(|_| "bootstrap_error mutex poisoned".to_string())
+}
+
+#[tauri::command]
+fn get_backend_boot_log_path() -> String {
+    backend_boot_log_path().to_string_lossy().into_owned()
+}
+
+#[tauri::command]
+fn retry_backend_start(app: tauri::AppHandle, state: tauri::State<BackendState>) -> Result<(), String> {
+    stop_backend(&*state);
+    if let Ok(mut g) = state.bootstrap_error.lock() {
+        *g = None;
+    }
+    ensure_backend_started(&app, &state)?;
     Ok(())
 }
 
@@ -740,6 +841,7 @@ fn main() {
     let state = BackendState {
         child: Mutex::new(None),
         port: Mutex::new(8000),
+        bootstrap_error: Mutex::new(None),
     };
 
     let app = tauri::Builder::default()
@@ -756,15 +858,21 @@ fn main() {
             }
             let state = app.state::<BackendState>();
             if let Err(e) = ensure_backend_started(&app.handle(), &state) {
-                append_log_line("ERROR", &format!("Backend start warning: {e}"));
+                append_log_line("WARN", &format!("Backend start failed (continuing in degraded mode): {e}"));
+                if let Ok(mut g) = state.bootstrap_error.lock() {
+                    *g = Some(e.clone());
+                }
                 if let Some(win) = app.get_window("main") {
                     tauri::api::dialog::blocking::message(
                         Some(&win),
                         "Backend ishga tushmadi",
-                        &format!("{e}\n\nGeeksPOS/logs/backend_boot.log ni tekshiring."),
+                        &format!(
+                            "{e}\n\nDastur cheklangan rejimda ochiladi. Ilovada 'Qayta urinish' tugmasi backendni qayta ishga tushirishga urinadi.\n\nLog: GeeksPOS/logs/backend_boot.log"
+                        ),
                     );
                 }
-                return Err(e.into());
+            } else if let Ok(mut g) = state.bootstrap_error.lock() {
+                *g = None;
             }
             if let Err(e) = enable_windows_autostart() {
                 append_log_line("WARN", &format!("Autostart setup warning: {e}"));
@@ -792,6 +900,9 @@ fn main() {
             machine_id,
             append_app_log,
             get_backend_base_url,
+            get_backend_bootstrap_error,
+            get_backend_boot_log_path,
+            retry_backend_start,
             request_app_exit
         ])
         .build(tauri::generate_context!())
@@ -803,8 +914,13 @@ fn main() {
                 if label == "main" {
                     match event {
                         tauri::WindowEvent::Focused(false) => {
-                            if let Some(window) = app_handle.get_window("main") {
-                                let _ = window.set_focus();
+                            if std::env::var("GEEKS_POS_KIOSK_FOCUS_RECLAIM")
+                                .map(|v| v == "1")
+                                .unwrap_or(false)
+                            {
+                                if let Some(window) = app_handle.get_window("main") {
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
                         tauri::WindowEvent::Destroyed => {

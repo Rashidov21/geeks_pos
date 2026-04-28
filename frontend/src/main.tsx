@@ -2,8 +2,10 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import i18n, { loadLocale } from './i18n'
+import { AppErrorBoundary } from './components/AppErrorBoundary'
 
 const RUNTIME_API_KEY = 'geeks_pos_runtime_api_base'
+const HEALTH_FETCH_MS = 2000
 
 async function appendUiLog(level: 'INFO' | 'ERROR', message: string) {
   try {
@@ -64,7 +66,15 @@ function renderBoot(root: ReturnType<typeof createRoot>, stage: BootStage, opts?
               type="button"
               className="touch-btn min-h-12 px-4 rounded-xl bg-slate-800 border border-slate-600"
               onClick={async () => {
-                const logPath = '%APPDATA%/GeeksPOS/logs/backend_boot.log'
+                let logPath = '%APPDATA%\\GeeksPOS\\logs\\backend_boot.log'
+                if (isTauriRuntime()) {
+                  try {
+                    const { invoke } = await import('@tauri-apps/api/tauri')
+                    logPath = await invoke<string>('get_backend_boot_log_path')
+                  } catch {
+                    // keep fallback
+                  }
+                }
                 try {
                   const { open } = await import('@tauri-apps/api/shell')
                   await open(logPath)
@@ -82,51 +92,102 @@ function renderBoot(root: ReturnType<typeof createRoot>, stage: BootStage, opts?
           </div>
         )}
       </div>
-    </div>
+    </div>,
   )
 }
 
+async function fetchHealthOk(base: string, signal: AbortSignal): Promise<boolean> {
+  try {
+    const health = await fetch(`${base}/api/health/`, { credentials: 'include', signal })
+    return health.ok
+  } catch {
+    return false
+  }
+}
+
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
+}
+
 async function bootstrap() {
-  const root = createRoot(document.getElementById('root')!)
+  const el = document.getElementById('root')
+  if (!el) {
+    document.body.innerHTML =
+      '<p style="padding:1rem;font-family:system-ui,sans-serif;background:#0f172a;color:#f8fafc">#root elementi topilmadi.</p>'
+    return
+  }
+
+  const root = createRoot(el)
+  let bootInFlight = false
+
   const run = async (): Promise<void> => {
+    if (bootInFlight) return
+    bootInFlight = true
     renderBoot(root, 'boot_init')
 
     try {
       renderBoot(root, 'runtime_check')
       await new Promise((resolve) => window.setTimeout(resolve, 120))
       renderBoot(root, 'backend_spawn')
-    const tauriRuntime =
-        typeof window !== 'undefined' &&
-        typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
+
+      const tauriRuntime = isTauriRuntime()
       if (tauriRuntime) {
         const { invoke } = await import('@tauri-apps/api/tauri')
         const base = await invoke<string>('get_backend_base_url')
-        window.localStorage.setItem(RUNTIME_API_KEY, base)
+        try {
+          window.localStorage.setItem(RUNTIME_API_KEY, base)
+        } catch {
+          // private mode / blocked storage
+        }
+
+        let backendReady = false
         const started = Date.now()
-        for (let i = 0; i < 140; i++) {
+        for (let attempt = 0; attempt < 140; attempt++) {
           const elapsed = Date.now() - started
           if (elapsed >= 5000 && elapsed < 30000) {
-            renderBoot(root, 'timeout_warn')
+            renderBoot(root, 'timeout_warn', {
+              detail: undefined,
+              onRetry: () => {
+                void retryBoot()
+              },
+            })
           } else {
-            renderBoot(root, 'backend_wait')
+            renderBoot(root, 'backend_wait', {
+              onRetry: () => {
+                void retryBoot()
+              },
+            })
           }
+
+          const controller = new AbortController()
+          const timer = window.setTimeout(() => controller.abort(), HEALTH_FETCH_MS)
           try {
-            const health = await fetch(`${base}/api/health/`, { credentials: 'include' })
-            if (health.ok) break
-          } catch {
-            // backend still booting
+            if (await fetchHealthOk(base, controller.signal)) {
+              backendReady = true
+              break
+            }
+          } finally {
+            window.clearTimeout(timer)
           }
+
           if (elapsed >= 35000) {
             throw new Error('Backend healthcheck timeout')
           }
           await new Promise((resolve) => window.setTimeout(resolve, 250))
         }
+
+        if (!backendReady) {
+          throw new Error('Backend healthcheck timeout')
+        }
       }
+
       await loadLocale(i18n.language || 'uz')
       const { default: App } = await import('./App.tsx')
       root.render(
         <StrictMode>
-          <App />
+          <AppErrorBoundary>
+            <App />
+          </AppErrorBoundary>
         </StrictMode>,
       )
     } catch (e) {
@@ -135,11 +196,27 @@ async function bootstrap() {
       renderBoot(root, 'boot_failed', {
         detail: `${message}. Qayta urining yoki logni tekshiring.`,
         onRetry: () => {
-          void run()
+          void retryBoot()
         },
       })
+    } finally {
+      bootInFlight = false
     }
   }
+
+  async function retryBoot(): Promise<void> {
+    if (bootInFlight) return
+    if (isTauriRuntime()) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri')
+        await invoke('retry_backend_start')
+      } catch {
+        // degraded or still failing — continue into full boot flow
+      }
+    }
+    await run()
+  }
+
   await run()
 }
 
