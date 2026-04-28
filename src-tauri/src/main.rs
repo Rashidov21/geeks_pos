@@ -3,6 +3,7 @@
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use std::fs;
+use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -65,6 +66,29 @@ fn append_log_line(level: &str, message: &str) {
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(file) {
         let _ = f.write_all(line.as_bytes());
     }
+}
+
+fn runtime_secret_key() -> String {
+    if let Ok(v) = std::env::var("DJANGO_SECRET_KEY") {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    let path = app_home_dir().join("runtime_secret.key");
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let trimmed = existing.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    let generated = format!(
+        "geekspos-{}-{}",
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4()
+    );
+    let _ = fs::write(&path, &generated);
+    generated
 }
 
 fn internal_flush_key() -> String {
@@ -325,6 +349,7 @@ fn pick_backend_port(preferred: u16) -> u16 {
 
 fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
     let waitress_threads = std::env::var("WAITRESS_THREADS").unwrap_or_else(|_| "2".to_string());
+    let secret_key = runtime_secret_key();
     if let Some(sidecar) = backend_sidecar_path(app) {
         append_log_line("INFO", &format!("Starting sidecar backend: {}", sidecar.display()));
         let mut cmd = Command::new(sidecar);
@@ -335,6 +360,7 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
             .arg("--threads")
             .arg(&waitress_threads)
             .env("DJANGO_DEBUG", "0")
+            .env("DJANGO_SECRET_KEY", &secret_key)
             .env("PYTHONUNBUFFERED", "1")
             .env("WAITRESS_THREADS", &waitress_threads);
         return cmd;
@@ -353,6 +379,7 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
             .arg("--threads")
             .arg(&waitress_threads)
             .env("DJANGO_DEBUG", "0")
+            .env("DJANGO_SECRET_KEY", &secret_key)
             .env("PYTHONUNBUFFERED", "1")
             .env("WAITRESS_THREADS", &waitress_threads);
         return cmd;
@@ -369,6 +396,7 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Command {
             .arg("--threads")
             .arg(&waitress_threads)
             .env("DJANGO_DEBUG", "0")
+            .env("DJANGO_SECRET_KEY", &secret_key)
             .env("PYTHONUNBUFFERED", "1")
             .env("WAITRESS_THREADS", &waitress_threads);
         return cmd;
@@ -406,10 +434,28 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
     }
 
     let mut cmd = backend_command(app, selected_port);
-    cmd
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    let boot_log_path = app_home_dir().join("logs").join("backend_boot.log");
+    let _ = fs::create_dir_all(boot_log_path.parent().unwrap_or_else(|| std::path::Path::new(".")));
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&boot_log_path)
+        .or_else(|_| File::create(&boot_log_path))
+        .ok();
+    let err_file = log_file
+        .as_ref()
+        .and_then(|f| f.try_clone().ok());
+    cmd.stdin(std::process::Stdio::null());
+    if let Some(file) = log_file {
+        cmd.stdout(std::process::Stdio::from(file));
+    } else {
+        cmd.stdout(std::process::Stdio::null());
+    }
+    if let Some(file) = err_file {
+        cmd.stderr(std::process::Stdio::from(file));
+    } else {
+        cmd.stderr(std::process::Stdio::null());
+    }
 
     let child = cmd.spawn().map_err(|e| format!("Failed to spawn backend: {e}"))?;
 
@@ -421,17 +467,41 @@ fn ensure_backend_started(app: &tauri::AppHandle, state: &BackendState) -> Resul
         *lock = Some(child);
     }
 
-    // Bootstrap can take longer on first run (migrations + seed on slower disks).
-    for _ in 0..120 {
+    // Wait up to ~35s with fail-fast if child exits.
+    for _ in 0..70 {
         if health_ok(selected_port) {
             append_log_line("INFO", "health_ok_after_spawn");
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(1000));
+        {
+            let mut lock = state
+                .child
+                .lock()
+                .map_err(|_| "Backend mutex poisoned".to_string())?;
+            if let Some(child) = lock.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        append_log_line(
+                            "ERROR",
+                            &format!("backend_exited_early status={status}"),
+                        );
+                        *lock = None;
+                        return Err(format!(
+                            "Backend start failed early (status: {status}). Check logs/backend_boot.log"
+                        ));
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        append_log_line("ERROR", &format!("backend_try_wait_error: {e}"));
+                    }
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(500));
     }
     stop_backend(state);
     append_log_line("ERROR", "bootstrap_failed_healthcheck");
-    Err("Backend healthcheck failed after start".to_string())
+    Err("Backend healthcheck timed out. Check logs/backend_boot.log".to_string())
 }
 
 #[tauri::command]
@@ -687,7 +757,14 @@ fn main() {
             let state = app.state::<BackendState>();
             if let Err(e) = ensure_backend_started(&app.handle(), &state) {
                 append_log_line("ERROR", &format!("Backend start warning: {e}"));
-                eprintln!("Backend start warning: {e}");
+                if let Some(win) = app.get_window("main") {
+                    tauri::api::dialog::blocking::message(
+                        Some(&win),
+                        "Backend ishga tushmadi",
+                        &format!("{e}\n\nGeeksPOS/logs/backend_boot.log ni tekshiring."),
+                    );
+                }
+                return Err(e.into());
             }
             if let Err(e) = enable_windows_autostart() {
                 append_log_line("WARN", &format!("Autostart setup warning: {e}"));

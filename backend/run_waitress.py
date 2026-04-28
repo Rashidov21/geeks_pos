@@ -10,6 +10,7 @@ Tauri/desktop should spawn this script (or `waitress-serve`) after the app start
 import argparse
 import os
 import time
+from pathlib import Path
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -41,19 +42,34 @@ def _bootstrap_db(max_attempts: int = 5) -> None:
             time.sleep(wait_s)
 
 
+def _bootstrap_marker_path() -> Path:
+    appdata = os.environ.get("APPDATA")
+    base = Path(appdata) / "GeeksPOS" if appdata else Path(__file__).resolve().parent.parent / ".geeks_pos"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / ".bootstrap_done"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--threads", type=int, default=int(os.environ.get("WAITRESS_THREADS", "2")))
     parser.add_argument("--skip-bootstrap", action="store_true")
+    parser.add_argument("--force-bootstrap", action="store_true")
     args = parser.parse_args()
 
     from django.core.wsgi import get_wsgi_application
     from waitress import serve
 
-    if not args.skip_bootstrap:
+    marker = _bootstrap_marker_path()
+    should_bootstrap = not args.skip_bootstrap and (args.force_bootstrap or not marker.exists())
+    if should_bootstrap:
+        print("BOOTSTRAP_START")
         _bootstrap_db()
+        marker.write_text(str(int(time.time())), encoding="utf-8")
+        print("BOOTSTRAP_DONE")
+    else:
+        print("BOOTSTRAP_SKIPPED")
 
     application = get_wsgi_application()
     print(f"Geeks POS API: http://{args.host}:{args.port}/")
