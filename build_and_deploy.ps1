@@ -19,6 +19,10 @@ Write-Host "[1/6] Cleaning old artifacts..." -ForegroundColor Cyan
 if (Test-Path ".\backend\dist") { Remove-Item ".\backend\dist\*" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path ".\backend\build") { Remove-Item ".\backend\build\*" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path ".\src-tauri\target") { Remove-Item ".\src-tauri\target\*" -Recurse -Force -ErrorAction SilentlyContinue }
+$repoDb = ".\backend\db.sqlite3"
+if (Test-Path $repoDb) {
+  throw "Clean release rad etildi: $repoDb topildi. Bu fayl eski user/PINni yangi installga ko‘chirib yuborishi mumkin."
+}
 
 Write-Host "[2/6] Building backend sidecar..." -ForegroundColor Cyan
 powershell -ExecutionPolicy Bypass -File ".\backend\scripts\build_sidecar.ps1" -Python $Python -Name "geeks_pos_backend" -RequireVenv

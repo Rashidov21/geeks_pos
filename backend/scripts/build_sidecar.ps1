@@ -24,6 +24,11 @@ else {
 
 $distDir = Join-Path $root "backend\dist"
 $buildDir = Join-Path $root "backend\build\sidecar"
+$repoDb = Join-Path $root "backend\db.sqlite3"
+
+if (Test-Path $repoDb) {
+  throw "Repo ichida backend\db.sqlite3 topildi. Clean release uchun bu fayl buildga kirmasligi kerak. Avval backup qilib olib tashlang: $repoDb"
+}
 
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
@@ -64,6 +69,7 @@ $backendDir = Join-Path $root "backend"
 $pyInstallerCommon = @(
   "--noconfirm",
   "--clean",
+  "--noconsole",
   "--onefile",
   "--name", $Name,
   "--distpath", $distDir,
@@ -103,6 +109,9 @@ if (!(Test-Path $sidecarExe)) {
 }
 
 Write-Host "Sidecar self-check (django.setup + migrate)..." -ForegroundColor Cyan
+if ($env:GEEKS_POS_DB_PATH) { Remove-Item Env:\GEEKS_POS_DB_PATH -ErrorAction SilentlyContinue }
+if ($env:GEEKS_POS_ALLOW_DB_OVERRIDE) { Remove-Item Env:\GEEKS_POS_ALLOW_DB_OVERRIDE -ErrorAction SilentlyContinue }
+if ($env:GEEKS_POS_ALLOW_LEGACY_DB_IMPORT) { Remove-Item Env:\GEEKS_POS_ALLOW_LEGACY_DB_IMPORT -ErrorAction SilentlyContinue }
 & $sidecarExe --self-check
 if ($LASTEXITCODE -ne 0) {
   throw "Sidecar --self-check muvaffaqiyatsiz (exit code: $LASTEXITCODE). PyInstaller yoki migratsiya xatosini tekshiring."

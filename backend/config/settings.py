@@ -102,11 +102,17 @@ TEMPLATES = [
 
 APP_HOME_DIR = _resolve_writable_app_home()
 APPDATA_ROOT = APP_HOME_DIR.parent
-DB_PATH = Path(os.environ.get("GEEKS_POS_DB_PATH", str(APP_HOME_DIR / "db.sqlite3")))
+db_override = os.environ.get("GEEKS_POS_DB_PATH", "").strip()
+allow_db_override = os.environ.get("GEEKS_POS_ALLOW_DB_OVERRIDE", "1" if DEBUG else "0") == "1"
+if db_override and allow_db_override:
+    DB_PATH = Path(db_override)
+else:
+    DB_PATH = APP_HOME_DIR / "db.sqlite3"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 LEGACY_DB_PATH = BASE_DIR / "db.sqlite3"
-if not DB_PATH.exists() and LEGACY_DB_PATH.exists():
-    # One-time migration path for upgrades from repo-local SQLite.
+allow_legacy_import = os.environ.get("GEEKS_POS_ALLOW_LEGACY_DB_IMPORT", "0") == "1"
+if allow_legacy_import and not DB_PATH.exists() and LEGACY_DB_PATH.exists():
+    # Optional one-time migration path for upgrades from repo-local SQLite.
     DB_PATH.write_bytes(LEGACY_DB_PATH.read_bytes())
 
 DATABASES = {

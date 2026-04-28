@@ -22,6 +22,8 @@ Bu hujjat dastur **tashqi** muhit muammolarini kamaytirish uchun qisqa ro‘yxat
 - To‘g‘ridan-to‘g‘ri tok o‘chirish **bazani buzishi** mumkin; UPS tavsiya etiladi.
 - Muntazam **backup**: admin orqali `backup-now` API / UI.
 - Agar `database is locked` takrorlansa: bitta `geeks_pos_backend` jarayoni ishlayotganini tekshiring; kerak bo‘lsa ilovani yopib qayta oching.
+- Production build siyosati: `backend/db.sqlite3` buildga kirmasligi kerak (release skript buni endi fail qiladi).
+- Productionda default DB override o‘chirilgan; test uchun kerak bo‘lsa faqat dev rejimida `GEEKS_POS_ALLOW_DB_OVERRIDE=1` bilan `GEEKS_POS_DB_PATH` ishlating.
 
 ## Dastur: ikki marta “Yakunlash” smoke testi (regressiya)
 

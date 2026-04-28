@@ -68,7 +68,9 @@ def _run_migrations_with_retry(max_attempts: int = 5) -> None:
 
     for attempt in range(1, max_attempts + 1):
         try:
+            from accounts.bootstrap import ensure_default_users_and_pins
             call_command("migrate", interactive=False, verbosity=0)
+            ensure_default_users_and_pins()
             print("Migrations OK.")
             return
         except Exception as exc:
@@ -87,6 +89,8 @@ def _self_check() -> int:
     """Smoke test for CI / post-build: setup + migrate + URL import resolution."""
     try:
         print("SELF_CHECK_START")
+        from django.conf import settings
+        print(f"DB_PATH={settings.DATABASES['default']['NAME']}")
         _run_migrations_with_retry()
         from django.urls import get_resolver
 
@@ -125,6 +129,8 @@ def main() -> None:
     if not args.skip_bootstrap:
         # Always run migrations on startup (idempotent; upgrades apply new migrations).
         print("BOOTSTRAP_START")
+        from django.conf import settings
+        print(f"DB_PATH={settings.DATABASES['default']['NAME']}")
         try:
             _run_migrations_with_retry()
         except Exception as exc:
