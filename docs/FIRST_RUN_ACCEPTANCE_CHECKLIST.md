@@ -38,3 +38,9 @@ This checklist is for a clean Windows POS machine (no prior install).
 4. Label printing works on label printer.
 5. `Smena (X)` page loads.
 6. `Ombor (ko'rish)` page loads.
+
+## Related ops guides
+
+- [MONOBLOCK_OPS.md](MONOBLOCK_OPS.md) — Defender, USB/printer, SQLite, double-complete smoke test.
+- [TAURI_UPDATER_SETUP.md](TAURI_UPDATER_SETUP.md) — avtomatik yangilanishni yoqish shabloni.
+- [SYNC_PUSH_ROADMAP.md](SYNC_PUSH_ROADMAP.md) — bulutga sotuv push yo‘l xaritasi.

@@ -71,11 +71,11 @@
     },
     "windows": [
       {
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "decorations": false,
-        "fullscreen": true,
+        "fullscreen": false,
         "height": 900,
-        "resizable": false,
+        "resizable": true,
         "title": "GEEKS POS",
         "width": 1200
       }

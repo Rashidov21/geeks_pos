@@ -84,10 +84,16 @@ def _run_migrations_with_retry(max_attempts: int = 5) -> None:
 
 
 def _self_check() -> int:
-    """Smoke test for CI / post-build: setup + migrate only."""
+    """Smoke test for CI / post-build: setup + migrate + URL import resolution."""
     try:
         print("SELF_CHECK_START")
         _run_migrations_with_retry()
+        from django.urls import get_resolver
+
+        # Force URLConf loading so dynamic include("config.api_urls")/include("*.urls")
+        # failures are caught during build-time self-check.
+        _ = get_resolver().url_patterns
+        print("URLCONF_OK")
         print("SELF_CHECK_OK")
         return 0
     except Exception as exc:

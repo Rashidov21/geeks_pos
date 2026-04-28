@@ -4,7 +4,8 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['config', 'config.settings', 'config.urls', 'config.wsgi', 'dotenv', 'core.apps', 'accounts.apps', 'catalog.apps', 'inventory.apps', 'sales.apps', 'debt.apps', 'printing.apps', 'sync.apps', 'reports.apps', 'integrations.apps', 'licensing.apps']
+hiddenimports = ['config', 'config.settings', 'config.urls', 'config.api_urls', 'config.wsgi', 'dotenv', 'core.apps', 'accounts.apps', 'catalog.apps', 'inventory.apps', 'sales.apps', 'debt.apps', 'printing.apps', 'sync.apps', 'reports.apps', 'integrations.apps', 'licensing.apps']
+hiddenimports += collect_submodules('config')
 hiddenimports += collect_submodules('django')
 hiddenimports += collect_submodules('waitress')
 hiddenimports += collect_submodules('rest_framework')

@@ -585,7 +585,7 @@ export function PosPage({
   }
 
   async function doComplete() {
-    if (completing || cart.length === 0) return
+    if (completing || completeInFlightRef.current || cart.length === 0) return
 
     const pays = paymentRows.map((r) => ({ method: r.method, amount: parseSom(r.amount) }))
     const payTotal = pays.reduce((acc, p) => acc.plus(p.amount), new Decimal(0))
@@ -605,9 +605,9 @@ export function PosPage({
       return
     }
 
+    completeInFlightRef.current = true
     setBanner(null)
     setCompleting(true)
-    const idem = crypto.randomUUID()
 
     try {
       const lines = cart.map((l) => ({
@@ -623,6 +623,17 @@ export function PosPage({
           }
         : undefined
 
+      const canonical = buildCompleteSaleFingerprintInput({
+        generation: idempotencyGenRef.current,
+        lines,
+        payments,
+        order_discount: discountDec.toString(),
+        expected_grand_total: grandDec.toString(),
+        debt_due_date: hasDebt && debtDueDate ? debtDueDate : null,
+        customer,
+      })
+      const idem = await hashSaleIdempotencyKey64(canonical)
+
       const res = await completeSale(
         {
           lines,
@@ -634,10 +645,10 @@ export function PosPage({
         },
         idem,
       )
+      idempotencyGenRef.current += 1
       setLastSaleId(res.sale_id)
       openNewCart()
       showToast('ok', `${t('msg.sale')}: ${res.public_sale_no || res.sale_id}`)
-      setTimeout(() => setCompleting(false), 400)
       if (autoPrintOnSale) void tryPrint(res.sale_id as string)
     } catch (e: unknown) {
       beepError()
@@ -649,6 +660,8 @@ export function PosPage({
         setBanner(msg)
       }
       showToast('err', msg)
+    } finally {
+      completeInFlightRef.current = false
       setCompleting(false)
     }
     safeRefocus()
@@ -669,7 +682,7 @@ export function PosPage({
         const normalized = normalizeScanValue(buffer, scannerPrefix, scannerSuffix || '\t')
         setBuffer('')
         if (normalized) void handleScanSubmit(normalized)
-      } else if (cart.length > 0 && !completing) {
+      } else if (cart.length > 0 && !completing && !completeInFlightRef.current) {
         void doComplete()
       }
       return
@@ -728,7 +741,7 @@ export function PosPage({
             const normalized = normalizeScanValue(buffer, scannerPrefix, scannerSuffix || '\t')
             setBuffer('')
             if (normalized) void handleScanSubmit(normalized)
-          } else if (cart.length > 0 && !completing) {
+          } else if (cart.length > 0 && !completing && !completeInFlightRef.current) {
             void doComplete()
           }
           return
