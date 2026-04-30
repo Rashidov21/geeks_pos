@@ -21,6 +21,15 @@ const STANDARD_COLOR_VALUES = [
   'std_navy',
 ] as const
 
+const LABEL_SIZE_STORAGE_KEY = 'geeks_pos_catalog_label_size'
+const DEFAULT_LABEL_SIZE: LabelStickerSize = '40x30'
+
+function normalizeSavedLabelSize(raw: string | null): LabelStickerSize {
+  const v = (raw || '').trim()
+  if (v === '40x30' || v === '40x50' || v === '50x40' || v === '58mm') return v
+  return DEFAULT_LABEL_SIZE
+}
+
 type WizardVariantForm = {
   product: string
   size: string
@@ -112,7 +121,13 @@ export function CatalogPage({
   const [quickAdjust, setQuickAdjust] = useState<Variant | null>(null)
   const [quickDelta, setQuickDelta] = useState(0)
   const [queueOpen, setQueueOpen] = useState(false)
-  const [queueSize, setQueueSize] = useState<LabelStickerSize>('40x50')
+  const [queueSize, setQueueSize] = useState<LabelStickerSize>(() => {
+    try {
+      return normalizeSavedLabelSize(window.localStorage.getItem(LABEL_SIZE_STORAGE_KEY))
+    } catch {
+      return DEFAULT_LABEL_SIZE
+    }
+  })
   const [queueMap, setQueueMap] = useState<Record<string, number>>({})
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1)
   const [matrixCells, setMatrixCells] = useState<Record<string, { purchase: string; list: string; qty: string }>>({})
@@ -148,6 +163,14 @@ export function CatalogPage({
     const timer = setTimeout(() => onFilter(query.trim()), 300)
     return () => clearTimeout(timer)
   }, [query, onFilter])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LABEL_SIZE_STORAGE_KEY, queueSize)
+    } catch {
+      // ignore storage access issues
+    }
+  }, [queueSize])
 
   useEffect(() => {
     if (wizardStep !== 3) return
