@@ -1,5 +1,6 @@
 import pytest
 from django.test import override_settings
+from rest_framework.test import APIClient
 
 from licensing.services import apply_activation_success
 
@@ -25,6 +26,11 @@ def test_sales_complete_blocked_when_license_enforced_and_invalid(client):
     from catalog.models import Category, Color, Product, ProductVariant, Size
     from decimal import Decimal
 
+    from licensing.models import LicenseState
+
+    # --reuse-db can leave a valid LicenseState from other tests; start clean.
+    LicenseState.objects.all().delete()
+
     cashier = _mk_user("cashier_lic", "CASHIER")
     cat = Category.objects.create(name_uz="K", name_ru="K")
     sz = Size.objects.create(value="42", label_uz="42", label_ru="42", sort_order=1)
@@ -38,17 +44,18 @@ def test_sales_complete_blocked_when_license_enforced_and_invalid(client):
         list_price=Decimal("10"),
         stock_qty=5,
     )
-    client.force_login(cashier)
+    client = APIClient()
+    client.force_authenticate(user=cashier)
 
-    with override_settings(LICENSE_ENFORCEMENT=True):
+    with override_settings(LICENSE_ENFORCEMENT=True, LICENSE_DEMO_DAYS=0):
         r = client.post(
             "/api/sales/complete/",
-            data={
+            {
                 "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
                 "payments": [{"method": "CASH", "amount": "10"}],
                 "expected_grand_total": "10",
             },
-            content_type="application/json",
+            format="json",
             HTTP_IDEMPOTENCY_KEY="lic-block-1",
         )
     assert r.status_code == 403
@@ -79,17 +86,18 @@ def test_sales_complete_allowed_when_license_valid(client):
         expires_at_iso="2099-12-31",
         raw_json="{}",
     )
-    client.force_login(cashier)
+    client = APIClient()
+    client.force_authenticate(user=cashier)
 
     with override_settings(LICENSE_ENFORCEMENT=True):
         r = client.post(
             "/api/sales/complete/",
-            data={
+            {
                 "lines": [{"variant_id": str(variant.id), "qty": 1, "line_discount": "0"}],
                 "payments": [{"method": "CASH", "amount": "10"}],
                 "expected_grand_total": "10",
             },
-            content_type="application/json",
+            format="json",
             HTTP_IDEMPOTENCY_KEY="lic-ok-1",
         )
     assert r.status_code == 200

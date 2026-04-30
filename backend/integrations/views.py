@@ -1,3 +1,7 @@
+import shutil
+from datetime import datetime, timedelta
+from pathlib import Path
+
 from django.conf import settings
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -9,7 +13,9 @@ from rest_framework.views import APIView
 
 from core.permissions import IsAdminOrOwner, IsCashier
 from debt.models import Customer, Debt
+from licensing.services import get_license_state
 
+from .backup_upload import upload_backup_to_remote
 from .models import IntegrationSettings
 from .serializers import IntegrationSettingsSerializer
 from .services import send_daily_z_report, send_whatsapp_reminder
@@ -139,4 +145,81 @@ class NotificationQueueFlushView(APIView):
         if not IsAdminOrOwner().has_permission(request, self):
             return Response({"detail": "You do not have permission to perform this action."}, status=403)
         return Response(flush_pending(limit=limit))
+
+
+class BackupAutoRunView(APIView):
+    """
+    Creates a local DB backup and uploads it to remote endpoint if schedule allows.
+    """
+
+    permission_classes = [IsAuthenticated, IsCashier]
+
+    @staticmethod
+    def _make_local_backup() -> tuple[Path, int]:
+        from django.conf import settings as dj_settings
+
+        db_path = Path(dj_settings.DATABASES["default"]["NAME"])
+        if not db_path.exists():
+            raise ValueError("Database not found")
+        out = Path.home() / "Documents" / "GeeksPOS" / "backups"
+        out.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        dest = out / f"backup-{stamp}.sqlite3"
+        shutil.copy2(db_path, dest)
+        return dest, dest.stat().st_size
+
+    def post(self, request):
+        enabled = bool(getattr(settings, "BACKUP_UPLOAD_ENABLED", False))
+        if not enabled:
+            return Response({"status": "disabled"}, status=200)
+        cfg = IntegrationSettings.get_solo()
+        interval_hours = max(1, int(getattr(settings, "BACKUP_INTERVAL_HOURS", 24) or 24))
+        force_raw = str(request.query_params.get("force") or request.data.get("force") or "").strip().lower()
+        force = force_raw in {"1", "true", "yes", "on"}
+        now_dt = timezone.now()
+        if not force and cfg.backup_last_uploaded_at:
+            next_at = cfg.backup_last_uploaded_at + timedelta(hours=interval_hours)
+            if now_dt < next_at:
+                return Response(
+                    {
+                        "status": "skipped",
+                        "reason": "interval_not_reached",
+                        "next_at": next_at.isoformat(),
+                    },
+                    status=200,
+                )
+
+        state = get_license_state()
+        endpoint = (getattr(settings, "BACKUP_UPLOAD_URL", "") or "").strip()
+        client_key = (getattr(settings, "BACKUP_CLIENT_KEY", "") or "").strip()
+        activation_key = (state.license_key or "").strip()
+        hardware_id = (state.hardware_id or "").strip()
+        auth_token = (getattr(settings, "BACKUP_AUTH_TOKEN", "") or "").strip()
+
+        try:
+            backup_path, size_bytes = self._make_local_backup()
+            result = upload_backup_to_remote(
+                endpoint=endpoint,
+                auth_token=auth_token,
+                client_key=client_key,
+                activation_key=activation_key,
+                hardware_id=hardware_id,
+                backup_path=backup_path,
+            )
+            cfg.backup_last_uploaded_at = now_dt
+            cfg.save(update_fields=["backup_last_uploaded_at", "updated_at"])
+            now = datetime.utcnow().isoformat() + "Z"
+            return Response(
+                {
+                    "status": result.get("status") or "uploaded",
+                    "hardware_id": result.get("hardware_id") or hardware_id,
+                    "file_name": result.get("file_name") or str(backup_path.name),
+                    "size_bytes": result.get("size_bytes") or size_bytes,
+                    "uploaded_at": result.get("uploaded_at") or now,
+                    "forced": force,
+                },
+                status=200,
+            )
+        except ValueError as e:
+            return Response({"code": "BACKUP_UPLOAD_FAILED", "detail": str(e)}, status=400)
 

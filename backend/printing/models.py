@@ -17,21 +17,27 @@ class StoreSettings(models.Model):
     footer_note = models.CharField(max_length=500, blank=True, default="Rahmat!")
     logo = models.ImageField(upload_to="store_logos/", null=True, blank=True)
 
-    # Printer language behavior
+    # Printer language / encoding behavior
     encoding = models.CharField(max_length=32, default="cp866")
     transliterate_uz = models.BooleanField(default=True)
+    # 'uz' | 'ru' | 'auto' — see receipt_plain_text/_labels for mapping.
+    receipt_lang = models.CharField(max_length=8, blank=True, default="")
     receipt_printer_name = models.CharField(max_length=255, blank=True, default="")
     receipt_printer_type = models.CharField(
         max_length=16,
         choices=PrinterType.choices,
         default=PrinterType.ESC_POS,
     )
+    # Optional Windows port hint (e.g. USB001) for routing when multiple printers share model names.
+    receipt_printer_port = models.CharField(max_length=64, blank=True, default="")
     label_printer_name = models.CharField(max_length=255, blank=True, default="")
     label_printer_type = models.CharField(
         max_length=16,
         choices=PrinterType.choices,
         default=PrinterType.TSPL,
     )
+    # Optional Windows port hint (e.g. USB002) for label printer.
+    label_printer_port = models.CharField(max_length=64, blank=True, default="")
     receipt_width = models.CharField(max_length=8, default="58mm")
     auto_print_on_sale = models.BooleanField(default=True)
     scanner_mode = models.CharField(max_length=16, default="keyboard")

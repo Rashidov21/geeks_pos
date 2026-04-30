@@ -16,9 +16,7 @@ foreach ($cmd in @("py", "npm", "npx")) {
 }
 
 Write-Host "[1/6] Cleaning old artifacts..." -ForegroundColor Cyan
-if (Test-Path ".\backend\dist") { Remove-Item ".\backend\dist\*" -Recurse -Force -ErrorAction SilentlyContinue }
-if (Test-Path ".\backend\build") { Remove-Item ".\backend\build\*" -Recurse -Force -ErrorAction SilentlyContinue }
-if (Test-Path ".\src-tauri\target") { Remove-Item ".\src-tauri\target\*" -Recurse -Force -ErrorAction SilentlyContinue }
+powershell -ExecutionPolicy Bypass -File ".\scripts\clean-build-artifacts.ps1"
 $repoDb = ".\backend\db.sqlite3"
 if (Test-Path $repoDb) {
   throw "Clean release rad etildi: $repoDb topildi. Bu fayl eski user/PINni yangi installga ko‘chirib yuborishi mumkin."

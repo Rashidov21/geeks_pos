@@ -31,7 +31,12 @@ def get_license_state() -> LicenseState:
 
 
 def _demo_days_total() -> int:
-    return max(0, int(getattr(settings, "LICENSE_DEMO_DAYS", 14) or 14))
+    raw = getattr(settings, "LICENSE_DEMO_DAYS", 14)
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        v = 14
+    return max(0, v)
 
 
 def _demo_days_left(state: LicenseState, now: datetime | None = None) -> int:

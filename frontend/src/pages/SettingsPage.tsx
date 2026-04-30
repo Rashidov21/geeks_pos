@@ -43,8 +43,11 @@ export function SettingsPage({
     transliterate_uz: boolean
     receipt_printer_name: string
     receipt_printer_type: 'ESC_POS' | 'TSPL'
+    receipt_printer_port?: string
     label_printer_name: string
     label_printer_type: 'ESC_POS' | 'TSPL'
+    label_printer_port?: string
+    receipt_lang?: string
     receipt_width: '58mm' | '80mm'
     auto_print_on_sale: boolean
     scanner_mode: 'keyboard' | 'serial'
@@ -82,10 +85,13 @@ export function SettingsPage({
     address: settings?.address ?? '',
     footer_note: settings?.footer_note ?? '',
     transliterate_uz: settings?.transliterate_uz ?? true,
+    receipt_lang: settings?.receipt_lang ?? '',
     receipt_printer_name: settings?.receipt_printer_name ?? '',
     receipt_printer_type: settings?.receipt_printer_type ?? 'ESC_POS',
+    receipt_printer_port: settings?.receipt_printer_port ?? '',
     label_printer_name: settings?.label_printer_name ?? '',
     label_printer_type: settings?.label_printer_type ?? 'TSPL',
+    label_printer_port: settings?.label_printer_port ?? '',
     receipt_width: settings?.receipt_width ?? '58mm',
     auto_print_on_sale: settings?.auto_print_on_sale ?? true,
     scanner_mode: settings?.scanner_mode ?? 'keyboard',
@@ -122,10 +128,13 @@ export function SettingsPage({
       address: settings?.address ?? '',
       footer_note: settings?.footer_note ?? '',
       transliterate_uz: settings?.transliterate_uz ?? true,
+      receipt_lang: settings?.receipt_lang ?? '',
       receipt_printer_name: settings?.receipt_printer_name ?? '',
       receipt_printer_type: settings?.receipt_printer_type ?? 'ESC_POS',
+      receipt_printer_port: settings?.receipt_printer_port ?? '',
       label_printer_name: settings?.label_printer_name ?? '',
       label_printer_type: settings?.label_printer_type ?? 'TSPL',
+      label_printer_port: settings?.label_printer_port ?? '',
       receipt_width: settings?.receipt_width ?? '58mm',
       auto_print_on_sale: settings?.auto_print_on_sale ?? true,
       scanner_mode: settings?.scanner_mode ?? 'keyboard',
@@ -389,6 +398,20 @@ export function SettingsPage({
                     placeholder={t('admin.settings.footerExample')}
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="block text-xs text-slate-400">
+                    {t('admin.settings.receiptLanguage', { defaultValue: 'Cheque language' })}
+                  </label>
+                  <select
+                    className={inputCls}
+                    value={form.receipt_lang || ''}
+                    onChange={(e) => setForm({ ...form, receipt_lang: e.target.value })}
+                  >
+                    <option value="">{t('admin.settings.receiptLanguageAuto', { defaultValue: 'Auto (UI language)' })}</option>
+                    <option value="uz">O‘zbek</option>
+                    <option value="ru">Русский</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div
@@ -452,6 +475,15 @@ export function SettingsPage({
                     value={form.receipt_printer_name}
                     onChange={(e) => setForm({ ...form, receipt_printer_name: e.target.value })}
                     placeholder={t('admin.settings.printerNameExample')}
+                  />
+                  <label className="block text-xs text-slate-400">
+                    {t('admin.settings.printerPortLabel', { defaultValue: 'Receipt port (e.g. USB001)' })}
+                  </label>
+                  <input
+                    className={inputSoftCls}
+                    value={form.receipt_printer_port || ''}
+                    onChange={(e) => setForm({ ...form, receipt_printer_port: e.target.value })}
+                    placeholder="USB001"
                   />
                   <p className="text-xs text-slate-500">{t('admin.settings.printerNameHelp')}</p>
                   <select
@@ -529,6 +561,15 @@ export function SettingsPage({
                     value={form.label_printer_name}
                     onChange={(e) => setForm({ ...form, label_printer_name: e.target.value })}
                     placeholder={t('admin.settings.labelPrinterNameExample')}
+                  />
+                  <label className="block text-xs text-slate-400">
+                    {t('admin.settings.labelPrinterPortLabel', { defaultValue: 'Label port (e.g. USB002)' })}
+                  </label>
+                  <input
+                    className={inputSoftCls}
+                    value={form.label_printer_port || ''}
+                    onChange={(e) => setForm({ ...form, label_printer_port: e.target.value })}
+                    placeholder="USB002"
                   />
                   <select
                     className={inputSoftCls}

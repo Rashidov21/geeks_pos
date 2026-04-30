@@ -18,6 +18,9 @@ import traceback
 from pathlib import Path
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+# Packaged sidecar: production default unless caller overrides (Tauri sets DJANGO_DEBUG=0).
+if getattr(sys, "frozen", False):
+    os.environ.setdefault("DJANGO_DEBUG", "0")
 
 # PyInstaller onefile: modullar arxivdan chiqarilgan papkada; ba’zi muhitlarda import tartibini mustahkamlash.
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -98,6 +101,15 @@ def _self_check() -> int:
         # failures are caught during build-time self-check.
         _ = get_resolver().url_patterns
         print("URLCONF_OK")
+        # Sidecar / PyInstaller: ensure python-escpos ships capabilities.json next to the package.
+        from pathlib import Path
+
+        import escpos
+
+        cap = Path(escpos.__file__).resolve().parent / "capabilities.json"
+        if not cap.is_file():
+            raise RuntimeError(f"escpos capabilities.json missing from bundle (expected {cap})")
+        print("ESC_POS_CAPABILITIES_OK")
         print("SELF_CHECK_OK")
         return 0
     except Exception as exc:

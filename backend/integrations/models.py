@@ -27,6 +27,8 @@ class IntegrationSettings(models.Model):
         max_length=16, choices=PrimaryReportChannel.choices, default=PrimaryReportChannel.BOTH
     )
     last_auto_z_report_date = models.DateField(null=True, blank=True)
+    # Internal scheduler state for backup throttle (not user-configurable from Settings UI).
+    backup_last_uploaded_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

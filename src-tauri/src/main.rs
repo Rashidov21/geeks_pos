@@ -1,4 +1,4 @@
-﻿// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -12,14 +12,21 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::Manager;
+use tauri::{LogicalSize, Manager};
+
 #[cfg(windows)]
-use raw_printer::write_to_device;
+use std::ffi::OsStr;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER};
 #[cfg(windows)]
-use windows_sys::Win32::Graphics::Printing::{EnumPrintersW, GetDefaultPrinterW, PRINTER_INFO_4W};
+use windows_sys::Win32::Graphics::Printing::{
+    ClosePrinter, EndDocPrinter, EndPagePrinter, EnumPrintersW, GetDefaultPrinterW, OpenPrinterW,
+    StartDocPrinterW, StartPagePrinter, WritePrinter, DOC_INFO_1W, PRINTER_INFO_4W,
+    PRINTER_ACCESS_USE, PRINTER_DEFAULTSW,
+};
 #[cfg(windows)]
 use windows_sys::Win32::System::Power::{
     SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
@@ -390,8 +397,14 @@ fn pick_backend_port(preferred: u16) -> u16 {
 fn backend_command(app: &tauri::AppHandle, port: u16) -> Result<Command, String> {
     let waitress_threads = std::env::var("WAITRESS_THREADS").unwrap_or_else(|_| "2".to_string());
     let secret_key = runtime_secret_key();
+    let django_debug = if cfg!(debug_assertions) { "1" } else { "0" };
+    let allow_db_override = if cfg!(debug_assertions) { "1" } else { "0" };
     if let Some(sidecar) = backend_sidecar_path(app) {
         append_log_line("INFO", &format!("Starting sidecar backend: {}", sidecar.display()));
+        append_log_line(
+            "INFO",
+            &format!("backend_env DJANGO_DEBUG={django_debug} GEEKS_POS_ALLOW_DB_OVERRIDE={allow_db_override}"),
+        );
         let mut cmd = Command::new(sidecar);
         cmd.arg("--host")
             .arg("127.0.0.1")
@@ -399,7 +412,8 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Result<Command, String>
             .arg(port.to_string())
             .arg("--threads")
             .arg(&waitress_threads)
-            .env("DJANGO_DEBUG", "0")
+            .env("DJANGO_DEBUG", django_debug)
+            .env("GEEKS_POS_ALLOW_DB_OVERRIDE", allow_db_override)
             .env("DJANGO_SECRET_KEY", &secret_key)
             .env("PYTHONUNBUFFERED", "1")
             .env("WAITRESS_THREADS", &waitress_threads);
@@ -429,7 +443,8 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Result<Command, String>
                 .arg(port.to_string())
                 .arg("--threads")
                 .arg(&waitress_threads)
-                .env("DJANGO_DEBUG", "0")
+                .env("DJANGO_DEBUG", django_debug)
+                .env("GEEKS_POS_ALLOW_DB_OVERRIDE", allow_db_override)
                 .env("DJANGO_SECRET_KEY", &secret_key)
                 .env("PYTHONUNBUFFERED", "1")
                 .env("WAITRESS_THREADS", &waitress_threads);
@@ -446,7 +461,8 @@ fn backend_command(app: &tauri::AppHandle, port: u16) -> Result<Command, String>
                 .arg(port.to_string())
                 .arg("--threads")
                 .arg(&waitress_threads)
-                .env("DJANGO_DEBUG", "0")
+                .env("DJANGO_DEBUG", django_debug)
+                .env("GEEKS_POS_ALLOW_DB_OVERRIDE", allow_db_override)
                 .env("DJANGO_SECRET_KEY", &secret_key)
                 .env("PYTHONUNBUFFERED", "1")
                 .env("WAITRESS_THREADS", &waitress_threads);
@@ -587,7 +603,8 @@ fn get_backend_base_url(state: tauri::State<BackendState>) -> Result<String, Str
         .port
         .lock()
         .map_err(|_| "Backend port mutex poisoned".to_string())?;
-    Ok(format!("http://127.0.0.1:{}", *port))
+    let base = format!("http://127.0.0.1:{}", *port);
+    Ok(base)
 }
 
 #[tauri::command]
@@ -651,15 +668,89 @@ fn default_printer_name() -> Result<String, String> {
     String::from_utf16(&buf[..end]).map_err(|e| e.to_string())
 }
 
+/// ESC/POS RAW via Win32 **Unicode** printer APIs (OpenPrinterW).
+/// `raw-printer` 0.1.x uses OpenPrinterA + CString, which breaks non‑ASCII queue names (Cyrillic, etc.).
+#[cfg(windows)]
+fn raw_print_win_wide(printer: &str, payload: &[u8], document_name: &str) -> Result<usize, String> {
+    use windows_sys::Win32::Foundation::HANDLE;
+
+    let printer_w: Vec<u16> = OsStr::new(printer).encode_wide().chain(std::iter::once(0)).collect();
+    let doc_w: Vec<u16> = OsStr::new(document_name).encode_wide().chain(std::iter::once(0)).collect();
+    let datatype_w: Vec<u16> = OsStr::new("RAW").encode_wide().chain(std::iter::once(0)).collect();
+
+    let mut printer_handle: HANDLE = std::ptr::null_mut();
+    let pd = PRINTER_DEFAULTSW {
+        pDatatype: std::ptr::null_mut(),
+        pDevMode: std::ptr::null_mut(),
+        DesiredAccess: PRINTER_ACCESS_USE,
+    };
+
+    unsafe {
+        if OpenPrinterW(printer_w.as_ptr(), &mut printer_handle, &pd) == 0 {
+            return Err(format!(
+                "OpenPrinterW failed (printer={printer:?}): Win32 {}",
+                GetLastError()
+            ));
+        }
+
+        struct PrinterClose(HANDLE);
+        impl Drop for PrinterClose {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = ClosePrinter(self.0);
+                }
+            }
+        }
+        let _close = PrinterClose(printer_handle);
+
+        let doc_info = DOC_INFO_1W {
+            pDocName: doc_w.as_ptr() as *mut u16,
+            pOutputFile: std::ptr::null_mut(),
+            pDatatype: datatype_w.as_ptr() as *mut u16,
+        };
+
+        let job_id = StartDocPrinterW(printer_handle, 1, &doc_info as *const DOC_INFO_1W as *const _);
+        if job_id == 0 {
+            return Err(format!("StartDocPrinterW failed: Win32 {}", GetLastError()));
+        }
+
+        if StartPagePrinter(printer_handle) == 0 {
+            let _ = EndDocPrinter(printer_handle);
+            return Err(format!("StartPagePrinter failed: Win32 {}", GetLastError()));
+        }
+
+        let mut bytes_written: u32 = 0;
+        let write_ok = WritePrinter(
+            printer_handle,
+            payload.as_ptr().cast(),
+            payload.len() as u32,
+            &mut bytes_written,
+        );
+
+        let _ = EndPagePrinter(printer_handle);
+        let _ = EndDocPrinter(printer_handle);
+
+        if write_ok == 0 {
+            return Err(format!("WritePrinter failed: Win32 {}", GetLastError()));
+        }
+
+        let n = bytes_written as usize;
+        if n == 0 {
+            return Err("WritePrinter reported zero bytes".to_string());
+        }
+        Ok(n)
+    }
+}
+
 #[cfg(windows)]
 fn raw_print_to(printer_name: Option<&str>, bytes: &[u8], doc_name: &str) -> Result<(), String> {
     let name = match printer_name.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => s.to_string(),
         None => default_printer_name()?,
     };
-    let written = write_to_device(&name, bytes, Some(doc_name)).map_err(|e| format!("raw_printer error: {e}"))?;
+    let written = raw_print_win_wide(&name, bytes, doc_name)?;
     if written == 0 {
-        return Err("raw_printer wrote zero bytes".to_string());
+        return Err("RAW print wrote zero bytes".to_string());
     }
     Ok(())
 }
@@ -766,7 +857,12 @@ fn print_plain(text: String) -> Result<String, String> {
 
 #[tauri::command]
 fn print_raw(payload: String, printer_name: Option<String>) -> Result<String, String> {
-    let bytes = B64.decode(payload.trim()).map_err(|e| e.to_string())?;
+    let bytes: Vec<u8> = B64
+        .decode(payload.trim())
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|&b| b != 0x07)
+        .collect();
 
     #[cfg(windows)]
     {
@@ -885,10 +981,22 @@ fn main() {
             enable_prevent_sleep();
             spawn_notification_flush_loop(app.handle());
             if let Some(window) = app.get_window("main") {
-                let _ = window.set_always_on_top(true);
-                let _ = window.set_fullscreen(true);
-                let _ = window.set_decorations(false);
-                let _ = window.set_resizable(false);
+                let kiosk = std::env::var("GEEKS_POS_KIOSK")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                if kiosk {
+                    let _ = window.set_always_on_top(true);
+                    let _ = window.set_fullscreen(true);
+                    let _ = window.set_decorations(false);
+                    let _ = window.set_resizable(false);
+                } else {
+                    let _ = window.set_always_on_top(false);
+                    let _ = window.set_fullscreen(false);
+                    let _ = window.set_decorations(false);
+                    let _ = window.set_resizable(true);
+                    let _ = window.set_size(LogicalSize::new(1366.0, 768.0));
+                    let _ = window.center();
+                }
             }
             Ok(())
         })

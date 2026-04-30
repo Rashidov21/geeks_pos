@@ -9,10 +9,12 @@ type Props = {
   /** Optional label above keys */
   label?: ReactNode
   className?: string
+  /** When set, digit keys do not grow the value beyond this many characters (PIN entry). */
+  maxDigits?: number
 }
 
 /** Large on-screen keypad for touch POS (digits + clear + backspace). */
-export function TouchNumpad({ value, onChange, label, className = '' }: Props) {
+export function TouchNumpad({ value, onChange, label, className = '', maxDigits }: Props) {
   function press(k: (typeof KEYS)[number]) {
     if (k === 'C') {
       onChange('0')
@@ -23,7 +25,9 @@ export function TouchNumpad({ value, onChange, label, className = '' }: Props) {
       onChange(next.length ? next : '0')
       return
     }
-    onChange(value === '0' ? k : `${value}${k}`)
+    const next = value === '0' ? k : `${value}${k}`
+    if (maxDigits != null && next.replace(/\D/g, '').length > maxDigits) return
+    onChange(next)
   }
 
   return (

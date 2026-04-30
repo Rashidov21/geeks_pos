@@ -15,13 +15,21 @@ class IntegrationSettingsSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        for key in ["telegram_bot_token", "whatsapp_api_token", "greenapi_api_token_instance"]:
+        for key in [
+            "telegram_bot_token",
+            "whatsapp_api_token",
+            "greenapi_api_token_instance",
+        ]:
             data[key] = self._mask_secret(data.get(key, ""))
         return data
 
     def update(self, instance, validated_data):
         # Ignore masked placeholders coming back from frontend.
-        for key in ["telegram_bot_token", "whatsapp_api_token", "greenapi_api_token_instance"]:
+        for key in [
+            "telegram_bot_token",
+            "whatsapp_api_token",
+            "greenapi_api_token_instance",
+        ]:
             value = validated_data.get(key)
             if isinstance(value, str) and "*" in value:
                 validated_data.pop(key, None)

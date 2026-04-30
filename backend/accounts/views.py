@@ -1,10 +1,11 @@
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import User
 from django.middleware.csrf import get_token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.authtoken.models import Token
 from accounts.models import Role
 from core.permissions import IsAdminOrOwner
 
@@ -19,6 +20,17 @@ def _resolve_role(user) -> str:
     if role in {Role.CASHIER, Role.ADMIN, Role.OWNER}:
         return str(role)
     return str(Role.CASHIER)
+
+
+def _token_login_payload(user: User) -> dict:
+    token, _ = Token.objects.get_or_create(user=user)
+    return {
+        "token": token.key,
+        "user": {
+            "username": user.username,
+            "role": _resolve_role(user),
+        },
+    }
 
 
 class CsrfView(APIView):
@@ -39,9 +51,7 @@ class LoginView(APIView):
             return Response(
                 {"code": "INVALID_CREDENTIALS", "detail": "Invalid credentials"}, status=400
             )
-        login(request, user)
-        role = _resolve_role(user)
-        return Response({"username": user.username, "role": role})
+        return Response(_token_login_payload(user))
 
 
 class PinUsersView(APIView):
@@ -80,8 +90,7 @@ class PinLoginView(APIView):
             return Response({"code": "PIN_NOT_SET", "detail": "PIN is not configured"}, status=400)
         if not check_password(pin, profile.pin_hash):
             return Response({"code": "INVALID_PIN", "detail": "PIN mismatch"}, status=400)
-        login(request, user)
-        return Response({"username": user.username, "role": _resolve_role(user)})
+        return Response(_token_login_payload(user))
 
 
 class SetUserPinView(APIView):
@@ -110,7 +119,8 @@ class SetUserPinView(APIView):
 
 class LogoutView(APIView):
     def post(self, request):
-        logout(request)
+        if getattr(request, "auth", None):
+            request.auth.delete()
         return Response({"ok": True})
 
 

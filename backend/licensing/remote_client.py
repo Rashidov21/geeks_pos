@@ -11,8 +11,48 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 
 
+def _normalize_license_api_base_url(raw: str | None) -> tuple[str, str | None]:
+    """
+    Build an absolute base URL for urllib (scheme + host required).
+
+    Misconfigured examples that would cause ValueError / "unknown url type":
+    - ``/api/v1/...`` (path only, no host)
+    - ``api.example.com`` (missing scheme — we prepend https://)
+    """
+    s = (raw or "").strip()
+    if not s:
+        return "", None
+    if s.startswith("//"):
+        s = "https:" + s
+    elif not s.startswith(("http://", "https://")):
+        if s.startswith("/"):
+            return "", (
+                "LICENSE_API_BASE_URL must be a full URL with host, not a path only "
+                "(e.g. set https://api.geeks.uz instead of /api/v1/...)."
+            )
+        s = "https://" + s.lstrip("/")
+    parsed = urlparse(s)
+    if parsed.scheme not in ("http", "https"):
+        return "", "LICENSE_API_BASE_URL must use http:// or https://."
+    if not parsed.netloc:
+        return "", "LICENSE_API_BASE_URL must include a hostname (e.g. https://api.geeks.uz)."
+    return s.rstrip("/") + "/", None
+
+
+def _license_api_base_configuration_error() -> str | None:
+    raw = (getattr(settings, "LICENSE_API_BASE_URL", None) or "").strip()
+    if not raw:
+        return None
+    base, err = _normalize_license_api_base_url(raw)
+    if base:
+        return None
+    return err or "LICENSE_API_BASE_URL is invalid."
+
+
 def _base_url() -> str:
-    return (getattr(settings, "LICENSE_API_BASE_URL", None) or "").strip().rstrip("/") + "/"
+    raw = getattr(settings, "LICENSE_API_BASE_URL", None) or ""
+    base, _ = _normalize_license_api_base_url(raw)
+    return base
 
 
 def _headers(*, include_json: bool = True) -> dict[str, str]:
@@ -44,9 +84,14 @@ ADMIN_LICENSES_PAGE_LIMIT = 1000
 
 def remote_fetch_admin_licenses_list() -> tuple[bool, list[dict[str, Any]] | str, int]:
     """
-    GET /api/v1/admin/licenses/?limit=1000&offset=0 (and follow ``next``) using the same
-    Token + X-CLIENT-KEY headers as other license server calls.
+    GET /api/v1/admin/licenses/?limit=1000&offset=0 (and follow ``next``).
+
+    Not used by the POS activation flow (verify + activate). Reserved for owner/admin tooling
+    or server-side scripts that need the full license list.
     """
+    cfg_err = _license_api_base_configuration_error()
+    if cfg_err:
+        return False, cfg_err, 0
     base = _base_url()
     if not base:
         return False, "LICENSE_API_BASE_URL is not configured", 0
@@ -95,12 +140,53 @@ def remote_fetch_admin_licenses_list() -> tuple[bool, list[dict[str, Any]] | str
             return False, str(e.reason or e), 0
         except OSError as e:
             return False, str(e), 0
+        except ValueError as e:
+            return False, str(e), 0
     return True, aggregated, 200
+
+
+def remote_verify_activation_key(*, activation_key: str) -> tuple[bool, dict[str, Any] | str, int]:
+    """
+    POST /api/v1/verify-activation-key/ — key exists, status, hardware_bound (POS step 1).
+
+    Body: ``{"activation_key": "<key>"}``. Same auth headers as other license calls.
+    """
+    cfg_err = _license_api_base_configuration_error()
+    if cfg_err:
+        return False, cfg_err, 0
+    base = _base_url()
+    if not base:
+        return False, "LICENSE_API_BASE_URL is not configured", 0
+    url = urljoin(base, "api/v1/verify-activation-key/")
+    payload = {"activation_key": activation_key}
+    req = Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
+    for k, v in _headers(include_json=True).items():
+        req.add_header(k, v)
+    try:
+        with urlopen(req, timeout=20) as resp:
+            status = int(getattr(resp, "status", 200) or 200)
+            ok, data = _decode_json_body(resp.read() or b"")
+            return ok, data, status
+    except HTTPError as e:
+        ok, data = _decode_json_body(e.read() or b"")
+        return ok, data if ok else f"HTTP {e.code}", int(e.code)
+    except URLError as e:
+        return False, str(e.reason or e), 0
+    except OSError as e:
+        return False, str(e), 0
+    except ValueError as e:
+        return False, str(e), 0
 
 
 def remote_activate(
     *, activation_key: str, hardware_id: str, client_meta: dict[str, Any] | None = None
 ) -> tuple[bool, dict[str, Any] | str, int]:
+    """
+    POST /api/v1/activate/ — bind hardware_id and confirm activation (POS step 2).
+    """
+    cfg_err = _license_api_base_configuration_error()
+    if cfg_err:
+        return False, cfg_err, 0
     base = _base_url()
     if not base:
         return False, "LICENSE_API_BASE_URL is not configured", 0
@@ -125,9 +211,14 @@ def remote_activate(
         return False, str(e.reason or e), 0
     except OSError as e:
         return False, str(e), 0
+    except ValueError as e:
+        return False, str(e), 0
 
 
 def remote_check_status(*, activation_key: str, hardware_id: str) -> tuple[bool, dict[str, Any] | str, int]:
+    cfg_err = _license_api_base_configuration_error()
+    if cfg_err:
+        return False, cfg_err, 0
     base = _base_url()
     if not base:
         return False, "LICENSE_API_BASE_URL is not configured", 0
@@ -148,11 +239,16 @@ def remote_check_status(*, activation_key: str, hardware_id: str) -> tuple[bool,
         return False, str(e.reason or e), 0
     except OSError as e:
         return False, str(e), 0
+    except ValueError as e:
+        return False, str(e), 0
 
 
 def remote_sync_report(
     *, activation_key: str, hardware_id: str, events: list[dict[str, Any]]
 ) -> tuple[bool, dict[str, Any] | str, int]:
+    cfg_err = _license_api_base_configuration_error()
+    if cfg_err:
+        return False, cfg_err, 0
     base = _base_url()
     if not base:
         return False, "LICENSE_API_BASE_URL is not configured", 0
@@ -176,4 +272,6 @@ def remote_sync_report(
     except URLError as e:
         return False, str(e.reason or e), 0
     except OSError as e:
+        return False, str(e), 0
+    except ValueError as e:
         return False, str(e), 0

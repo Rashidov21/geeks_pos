@@ -1,4 +1,5 @@
-﻿from decimal import Decimal, ROUND_HALF_UP
+import re
+from decimal import Decimal, ROUND_HALF_UP
 
 from .models import StoreSettings
 
@@ -79,6 +80,11 @@ def _format_amount(v) -> str:
     return str(int(round_som(v)))
 
 
+def _strip_cjk(text: str) -> str:
+    # Remove Chinese/Japanese ideographs that thermal printer codepages typically cannot render.
+    return re.sub(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", "", text or "").strip()
+
+
 def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
     settings = StoreSettings.get_solo()
     lines_out = []
@@ -86,9 +92,10 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
         v = line.variant
         lines_out.append(
             {
-                "name": v.product.name_uz,
-                "size": v.size.label_uz,
-                "color": v.color.label_uz,
+                # Receipt is Russian-only by business requirement.
+                "name": _strip_cjk(getattr(v.product, "name_ru", None) or v.product.name_uz or ""),
+                "size": _strip_cjk(getattr(v.size, "label_ru", None) or v.size.label_uz or ""),
+                "color": _strip_cjk(getattr(v.color, "label_ru", None) or v.color.label_uz or ""),
                 "barcode": v.barcode,
                 "qty": line.qty,
                 "unit": _format_amount(line.net_unit_price),
@@ -96,6 +103,9 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
             }
         )
     pays = [{"method": p.method, "amount": _format_amount(p.amount)} for p in sale.payments.all()]
+    # Receipt language is forced to Russian.
+    normalized_lang = "ru"
+
     return {
         "store": {
             "brand_name": settings.brand_name,
@@ -104,7 +114,7 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
             "footer_note": settings.footer_note,
             "transliterate_uz": settings.transliterate_uz,
             "encoding": settings.encoding,
-            "lang": _normalize_lang(lang),
+            "lang": normalized_lang,
             "receipt_width": settings.receipt_width or "58mm",
             "receipt_printer_name": settings.receipt_printer_name or "",
             "receipt_printer_type": settings.receipt_printer_type,
@@ -124,7 +134,7 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
 
 
 def _normalize_text(text: str, translit: bool) -> str:
-    text = text or ""
+    text = _strip_cjk(text or "")
     if translit:
         text = transliterate_uz(text)
     return text
@@ -132,8 +142,8 @@ def _normalize_text(text: str, translit: bool) -> str:
 
 def receipt_plain_text(receipt: dict) -> str:
     store = receipt.get("store", {})
-    translit = bool(store.get("transliterate_uz", True))
     lang = _normalize_lang(store.get("lang", "uz"))
+    translit = bool(store.get("transliterate_uz", True)) and lang != "ru"
     labels = _labels(lang)
 
     def t(v: str) -> str:
@@ -227,14 +237,49 @@ def receipt_escpos_bytes(receipt: dict) -> bytes:
             },
         }
     )
+    plain_lines = plain.split("\n")
+    brand_heading = plain_lines[0] if plain_lines else ""
+    plain_body = "\n".join(plain_lines[1:]) if len(plain_lines) > 1 else ""
 
-    p.set(align="left")
-    p.text(plain)
+    try:
+        p.set(align="center", bold=True, double_width=True, double_height=True)
+    except Exception:
+        try:
+            p.set(align="center", bold=True)
+        except Exception:
+            p.set(align="center")
+    p.text(f"{brand_heading}\n\n")
+    try:
+        p.set(align="left", bold=False, double_width=False, double_height=False)
+    except Exception:
+        try:
+            p.set(align="left", bold=False)
+        except Exception:
+            p.set(align="left")
+    p.text(plain_body)
     try:
         p.cut(mode="PART")
     except Exception:
         p.text("\n\n")
     return p.output
+
+
+def _label_escpos_cols(size: str) -> int:
+    s = (size or "40x30").strip().lower()
+    if s == "58mm":
+        return 42
+    if s == "50x40":
+        return 40
+    return 32
+
+
+def _label_escpos_barcode_height(size: str) -> int:
+    s = (size or "40x30").strip().lower()
+    if s == "40x50":
+        return 108
+    if s in ("50x40", "58mm"):
+        return 88
+    return 72
 
 
 def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> bytes:
@@ -251,21 +296,50 @@ def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> byte
         except Exception:
             pass
 
-    name = f"{variant.product.name_uz} {variant.size.label_uz} {variant.color.label_uz}"
+    cols = _label_escpos_cols(size)
+    cat = ""
+    c = getattr(variant.product, "category", None)
+    if c is not None:
+        cat = (getattr(c, "name_uz", None) or "").strip()
+    brand_src = (settings.brand_name or "").strip() or cat
+    brand = brand_src[:cols]
+    model = (variant.product.name_uz or "")[:cols]
+    size_color = f"{variant.size.label_uz} {variant.color.label_uz}"[:cols]
     price = _format_amount(variant.list_price)
-    width = 32 if size == "40x30" else 42
+    bc_h = _label_escpos_barcode_height(size)
+    bc_w = 3
     for _ in range(max(1, int(copies))):
+        p.set(align="center", width=1, height=1)
+        p.text(f"{brand}\n")
         p.set(align="center", width=2, height=2)
-        p.text(f"{settings.brand_name[:width]}\n")
-        p.set(align="left", width=1, height=1)
-        p.text(f"{name[:width]}\n")
-        p.text(f"{variant.barcode}\n")
-        p.set(align="center", width=2, height=2)
-        p.text(f"{price}\n")
+        p.text(f"{model}\n")
+        p.set(align="center", width=1, height=1)
+        p.text(f"{size_color}\n")
         p.set(align="center")
         # Avoid python-escpos profile warning on Dummy() printers where media.width.pixel is unset.
-        p.barcode(variant.barcode or "", "CODE39", height=64, width=2, pos="BELOW", check=False, align_ct=False)
+        try:
+            p.barcode(
+                variant.barcode or "",
+                "CODE128",
+                height=bc_h,
+                width=bc_w,
+                pos="BELOW",
+                check=False,
+                align_ct=False,
+            )
+        except Exception:
+            p.barcode(
+                variant.barcode or "",
+                "CODE39",
+                height=bc_h,
+                width=bc_w,
+                pos="BELOW",
+                check=False,
+                align_ct=False,
+            )
         p.text("\n")
+        p.set(align="center", width=2, height=2)
+        p.text(f"{price}\n")
     try:
         p.cut(mode="PART")
     except Exception:

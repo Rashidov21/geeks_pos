@@ -224,7 +224,7 @@ def test_receipt_endpoints_return_sale_not_found_code(client):
 
 
 @pytest.mark.django_db
-def test_tspl_label_always_40x30(client):
+def test_tspl_label_size_matches_request(client):
     owner = _mk_user("owner_tspl_size", "OWNER")
     variant = _mk_variant()
     client.force_login(owner)
@@ -234,15 +234,23 @@ def test_tspl_label_always_40x30(client):
         content_type="application/json",
     )
     assert put.status_code == 200
-    r = client.post(
+    r50 = client.post(
+        "/api/printing/labels/escpos/",
+        data={"variant_id": str(variant.id), "size": "40x50", "copies": 1},
+        content_type="application/json",
+    )
+    assert r50.status_code == 200
+    raw50 = base64.b64decode(r50.json()["raw_base64"]).decode("ascii", errors="ignore")
+    assert "SIZE 40 mm,50 mm" in raw50
+    assert raw50.index("CLS") < raw50.index("BARCODE")
+    assert raw50.index("TEXT") < raw50.index("BARCODE")
+
+    r58 = client.post(
         "/api/printing/labels/escpos/",
         data={"variant_id": str(variant.id), "size": "58mm", "copies": 1},
         content_type="application/json",
     )
-    assert r.status_code == 200
-    raw = base64.b64decode(r.json()["raw_base64"]).decode("ascii", errors="ignore")
-    assert "SIZE 40 mm,30 mm" in raw
-    assert "SIZE 58 mm,40 mm" not in raw
-    assert raw.index("CLS") < raw.index("BARCODE")
-    assert raw.index("TEXT") < raw.index("BARCODE")
+    assert r58.status_code == 200
+    raw58 = base64.b64decode(r58.json()["raw_base64"]).decode("ascii", errors="ignore")
+    assert "SIZE 58 mm,40 mm" in raw58
 

@@ -28,7 +28,7 @@
     },
     "bundle": {
       "active": true,
-      "category": "DeveloperTool",
+      "category": "Business",
       "copyright": "",
       "deb": {
         "depends": []
@@ -42,7 +42,7 @@
         "icons/resized-logo (1).png",
         "icons/resized-logo (2).png"
       ],
-      "identifier": "com.geeks.pos",
+      "identifier": "uz.geeks.pos",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
@@ -72,12 +72,15 @@
     "windows": [
       {
         "alwaysOnTop": false,
-        "decorations": false,
-        "fullscreen": false,
-        "height": 900,
+        "decorations": true,
+        "fullscreen": true,
+        "maximized": true,
+        "height": 768,
         "resizable": true,
         "title": "GEEKS POS",
-        "width": 1200
+        "width": 1366,
+        "hiddenTitle": false,  
+        "center": true
       }
     ]
   }

@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [react()],
   build: {
     sourcemap: false,
+    minify: 'esbuild',
+    chunkSizeWarningLimit: 900,
+    assetsInlineLimit: 4096,
     rollupOptions: {
       output: {
         manualChunks(id) {

@@ -4,12 +4,14 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['config', 'config.settings', 'config.urls', 'config.api_urls', 'config.wsgi', 'dotenv', 'core.apps', 'accounts.apps', 'catalog.apps', 'inventory.apps', 'sales.apps', 'debt.apps', 'printing.apps', 'sync.apps', 'reports.apps', 'integrations.apps', 'licensing.apps']
+hiddenimports = ['config', 'config.settings', 'config.urls', 'config.api_urls', 'config.wsgi', 'dotenv', 'escpos', 'escpos.capabilities', 'yaml', 'core.apps', 'accounts.apps', 'catalog.apps', 'inventory.apps', 'sales.apps', 'debt.apps', 'printing.apps', 'sync.apps', 'reports.apps', 'integrations.apps', 'licensing.apps']
 hiddenimports += collect_submodules('config')
 hiddenimports += collect_submodules('django')
 hiddenimports += collect_submodules('waitress')
 hiddenimports += collect_submodules('rest_framework')
 hiddenimports += collect_submodules('corsheaders')
+tmp_ret = collect_all('escpos')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('core')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('accounts')

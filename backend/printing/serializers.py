@@ -18,10 +18,13 @@ class StoreSettingsSerializer(serializers.ModelSerializer):
             "logo_url",
             "encoding",
             "transliterate_uz",
+            "receipt_lang",
             "receipt_printer_name",
             "receipt_printer_type",
+            "receipt_printer_port",
             "label_printer_name",
             "label_printer_type",
+            "label_printer_port",
             "receipt_width",
             "auto_print_on_sale",
             "scanner_mode",
@@ -43,7 +46,11 @@ class StoreSettingsSerializer(serializers.ModelSerializer):
 
 class LabelSingleSerializer(serializers.Serializer):
     variant_id = serializers.UUIDField()
-    size = serializers.ChoiceField(choices=["40x30", "58mm"], required=False, default="40x30")
+    size = serializers.ChoiceField(
+        choices=["40x30", "40x50", "50x40", "58mm"],
+        required=False,
+        default="40x30",
+    )
     copies = serializers.IntegerField(min_value=1, max_value=200, required=False, default=1)
 
 
@@ -53,7 +60,11 @@ class LabelQueueItemSerializer(serializers.Serializer):
 
 
 class LabelQueueSerializer(serializers.Serializer):
-    size = serializers.ChoiceField(choices=["40x30", "58mm"], required=False, default="40x30")
+    size = serializers.ChoiceField(
+        choices=["40x30", "40x50", "50x40", "58mm"],
+        required=False,
+        default="40x30",
+    )
     items = LabelQueueItemSerializer(many=True)
 
 
@@ -63,8 +74,10 @@ class HardwareConfigSerializer(serializers.ModelSerializer):
         fields = [
             "receipt_printer_name",
             "receipt_printer_type",
+            "receipt_printer_port",
             "label_printer_name",
             "label_printer_type",
+            "label_printer_port",
             "receipt_width",
             "auto_print_on_sale",
             "scanner_mode",

@@ -1,4 +1,4 @@
-﻿import { StrictMode } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import i18n, { loadLocale } from './i18n'
@@ -109,6 +109,15 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
 }
 
+function shouldUseDevProxy(): boolean {
+  if (typeof window === 'undefined') return false
+  return (
+    isTauriRuntime() &&
+    (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
+    window.location.hostname === 'localhost'
+  )
+}
+
 async function bootstrap() {
   const el = document.getElementById('root')
   if (!el) {
@@ -135,7 +144,11 @@ async function bootstrap() {
         const { invoke } = await import('@tauri-apps/api/tauri')
         const base = await invoke<string>('get_backend_base_url')
         try {
-          window.localStorage.setItem(RUNTIME_API_KEY, base)
+          if (shouldUseDevProxy()) {
+            window.localStorage.removeItem(RUNTIME_API_KEY)
+          } else {
+            window.localStorage.setItem(RUNTIME_API_KEY, base)
+          }
         } catch {
           // private mode / blocked storage
         }

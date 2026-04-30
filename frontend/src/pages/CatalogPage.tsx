@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { List, type RowComponentProps } from 'react-window'
-import type { BulkGridCell, Category, Color, Product, Size, Variant } from '../api'
+import type { BulkGridCell, Category, Color, LabelStickerSize, Product, Size, Variant } from '../api'
 import { useTranslation } from 'react-i18next'
 import { formatMoney } from '../utils/money'
 import { TouchNumpad } from '../components/TouchNumpad'
+import { NumericNumpadField } from '../components/NumericNumpadField'
 import { ActionToast } from '../components/ActionToast'
 import { Pencil, Printer, Power, Trash2, PackagePlus, ScanBarcode } from 'lucide-react'
 
@@ -68,10 +69,10 @@ export function CatalogPage({
   onCreateProduct: (payload: { category: string; name_uz: string; name_ru: string }) => Promise<void>
   onCreateSize: (payload: { value: string; label_uz: string; label_ru: string; sort_order?: number }) => Promise<void>
   onAdjustStockQuick: (variantId: string, qtyDelta: number, note: string) => Promise<void>
-  onPrintSticker: (variantId: string, copies: number, size: '40x30' | '58mm') => Promise<void>
+  onPrintSticker: (variantId: string, copies: number, size: LabelStickerSize) => Promise<void>
   onPrintStickerQueue: (
     items: Array<{ variant_id: string; copies: number }>,
-    size: '40x30' | '58mm',
+    size: LabelStickerSize,
   ) => Promise<void>
   onToggleVariant: (v: Variant) => Promise<void>
   onUpdateVariant: (
@@ -111,7 +112,7 @@ export function CatalogPage({
   const [quickAdjust, setQuickAdjust] = useState<Variant | null>(null)
   const [quickDelta, setQuickDelta] = useState(0)
   const [queueOpen, setQueueOpen] = useState(false)
-  const [queueSize, setQueueSize] = useState<'40x30' | '58mm'>('40x30')
+  const [queueSize, setQueueSize] = useState<LabelStickerSize>('40x50')
   const [queueMap, setQueueMap] = useState<Record<string, number>>({})
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1)
   const [matrixCells, setMatrixCells] = useState<Record<string, { purchase: string; list: string; qty: string }>>({})
@@ -122,6 +123,8 @@ export function CatalogPage({
   const [bulkStickerPrompt, setBulkStickerPrompt] = useState<null | { variantIds: string[]; copiesStr: string }>(null)
   const [bulkStickerBusy, setBulkStickerBusy] = useState(false)
   const [numpadOpen, setNumpadOpen] = useState<null | { field: MatrixField; sizeId: string | 'all' }>(null)
+  /** Raw digits when matrix numpad was opened. */
+  const [matrixNumpadBaseline, setMatrixNumpadBaseline] = useState('0')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
 
@@ -196,15 +199,30 @@ export function CatalogPage({
     })
   }
 
-  function numpadValue(): string {
-    if (!numpadOpen) return '0'
-    if (numpadOpen.sizeId === 'all') {
-      if (numpadOpen.field === 'qty') return digitsOnly(defaultQty) || '0'
-      if (numpadOpen.field === 'purchase') return digitsOnly(defaultPurchase) || '0'
+  function matrixNumpadRaw(ctx: { field: MatrixField; sizeId: string | 'all' }): string {
+    if (ctx.sizeId === 'all') {
+      if (ctx.field === 'qty') return digitsOnly(defaultQty) || '0'
+      if (ctx.field === 'purchase') return digitsOnly(defaultPurchase) || '0'
       return digitsOnly(defaultList) || '0'
     }
-    const row = matrixCells[numpadOpen.sizeId] || { purchase: '0', list: '0', qty: '0' }
-    return digitsOnly(row[numpadOpen.field]) || '0'
+    const row = matrixCells[ctx.sizeId] || { purchase: '0', list: '0', qty: '0' }
+    return digitsOnly(row[ctx.field]) || '0'
+  }
+
+  function numpadValue(): string {
+    if (!numpadOpen) return '0'
+    return matrixNumpadRaw(numpadOpen)
+  }
+
+  function openMatrixNumpad(field: MatrixField, sizeId: string | 'all') {
+    const ctx = { field, sizeId }
+    setMatrixNumpadBaseline(matrixNumpadRaw(ctx))
+    setNumpadOpen(ctx)
+  }
+
+  function matrixNumpadDisplay(field: MatrixField, rawDigits: string): string {
+    if (field === 'qty') return rawDigits
+    return formatMoney(rawDigits)
   }
 
   function onNumpadChange(next: string) {
@@ -367,7 +385,20 @@ export function CatalogPage({
     <div className="p-4 space-y-4 relative">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{t('admin.catalog.title')}</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-slate-400">
+            <span className="whitespace-nowrap">{t('admin.catalog.labelSize')}</span>
+            <select
+              className="touch-btn min-h-10 px-2 py-1 rounded bg-slate-950 border border-slate-700 text-sm text-slate-100"
+              value={queueSize}
+              onChange={(e) => setQueueSize(e.target.value as LabelStickerSize)}
+            >
+              <option value="40x50">40×50 (4×5 cm)</option>
+              <option value="50x40">50×40 (5×4 cm)</option>
+              <option value="40x30">40×30</option>
+              <option value="58mm">58 mm</option>
+            </select>
+          </label>
           <button
             type="button"
             className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 text-sm"
@@ -381,6 +412,10 @@ export function CatalogPage({
               className="touch-btn min-h-12 pl-8 px-3 rounded bg-slate-900 border border-slate-700 text-sm"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              inputMode="none"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder={t('admin.catalog.searchPlaceholder', { defaultValue: 'Qidiruv / barcode: 20000001' })}
             />
           </div>
@@ -405,7 +440,8 @@ export function CatalogPage({
           className="w-full text-left flex flex-wrap items-center justify-between gap-2"
           onClick={() => setWizardOpen((p) => !p)}
         >
-          <div className="text-sm font-medium text-slate-200">
+          <div className="text-sm font-medium text-slate-200 inline-flex items-center gap-2">
+            <PackagePlus className="h-5 w-5 text-emerald-400 shrink-0" aria-hidden />
             {t('admin.catalog.wizard.progress', { step: wizardStep })}
           </div>
           <div className="flex items-center gap-2">
@@ -456,22 +492,32 @@ export function CatalogPage({
                   {t('admin.catalog.addBrand')}
                 </button>
               </div>
-              <select
-                className="touch-btn min-h-14 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base md:col-span-2"
-                value={selectedModel}
-                onChange={(e) => {
-                  setSelectedModel(e.target.value)
-                  setForm((p: WizardVariantForm) => ({ ...p, product: e.target.value }))
-                }}
-                disabled={!selectedBrand}
-              >
-                <option value="">{t('admin.catalog.model')}</option>
-                {modelOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name_uz}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-col sm:flex-row gap-2 md:col-span-2">
+                <select
+                  className="touch-btn min-h-14 flex-1 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
+                  value={selectedModel}
+                  onChange={(e) => {
+                    setSelectedModel(e.target.value)
+                    setForm((p: WizardVariantForm) => ({ ...p, product: e.target.value }))
+                  }}
+                  disabled={!selectedBrand}
+                >
+                  <option value="">{t('admin.catalog.model')}</option>
+                  {modelOptions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name_uz}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="touch-btn min-h-14 px-5 rounded-xl bg-emerald-700 border border-emerald-500 font-semibold shrink-0 inline-flex items-center justify-center gap-2"
+                  onClick={() => wizardNext()}
+                >
+                  <PackagePlus className="h-5 w-5" aria-hidden />
+                  {t('admin.catalog.wizard.addProductCta')}
+                </button>
+              </div>
               <div className="flex gap-2 md:col-span-2">
                 <input
                   className="touch-btn min-h-14 flex-1 px-4 rounded-xl bg-slate-950 border border-slate-700 text-base"
@@ -562,7 +608,7 @@ export function CatalogPage({
                 <button
                   type="button"
                   className="touch-btn min-h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left"
-                  onClick={() => setNumpadOpen({ field: 'qty', sizeId: 'all' })}
+                  onClick={() => openMatrixNumpad('qty', 'all')}
                 >
                   <div className="text-xs text-slate-500">{t('admin.catalog.wizard.defaultQty')}</div>
                   <div className="text-lg font-semibold tabular-nums">{digitsOnly(defaultQty) || '0'}</div>
@@ -570,7 +616,7 @@ export function CatalogPage({
                 <button
                   type="button"
                   className="touch-btn min-h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left"
-                  onClick={() => setNumpadOpen({ field: 'purchase', sizeId: 'all' })}
+                  onClick={() => openMatrixNumpad('purchase', 'all')}
                 >
                   <div className="text-xs text-slate-500">{t('admin.catalog.wizard.defaultCost')}</div>
                   <div className="text-lg font-semibold tabular-nums">{formatMoney(defaultPurchase)}</div>
@@ -578,7 +624,7 @@ export function CatalogPage({
                 <button
                   type="button"
                   className="touch-btn min-h-12 rounded-xl border border-slate-700 bg-slate-900 px-3 text-left"
-                  onClick={() => setNumpadOpen({ field: 'list', sizeId: 'all' })}
+                  onClick={() => openMatrixNumpad('list', 'all')}
                 >
                   <div className="text-xs text-slate-500">{t('admin.catalog.wizard.defaultSale')}</div>
                   <div className="text-lg font-semibold tabular-nums">{formatMoney(defaultList)}</div>
@@ -605,7 +651,7 @@ export function CatalogPage({
                           <button
                             type="button"
                             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
-                            onClick={() => setNumpadOpen({ field: 'purchase', sizeId: s.id })}
+                            onClick={() => openMatrixNumpad('purchase', s.id)}
                           >
                             {formatMoney(digitsOnly(cell.purchase) || '0')}
                           </button>
@@ -614,7 +660,7 @@ export function CatalogPage({
                           <button
                             type="button"
                             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
-                            onClick={() => setNumpadOpen({ field: 'list', sizeId: s.id })}
+                            onClick={() => openMatrixNumpad('list', s.id)}
                           >
                             {formatMoney(digitsOnly(cell.list) || '0')}
                           </button>
@@ -623,7 +669,7 @@ export function CatalogPage({
                           <button
                             type="button"
                             className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-right tabular-nums"
-                            onClick={() => setNumpadOpen({ field: 'qty', sizeId: s.id })}
+                            onClick={() => openMatrixNumpad('qty', s.id)}
                           >
                             {digitsOnly(cell.qty) || '0'}
                           </button>
@@ -735,7 +781,7 @@ export function CatalogPage({
                       className="touch-btn min-h-12 px-3 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                       onClick={async () => {
                         try {
-                          await onPrintSticker(v.id, 1, '40x30')
+                          await onPrintSticker(v.id, 1, queueSize)
                           setToast(t('admin.catalog.stickerPrinted'))
                         } catch (e: unknown) {
                           const rawMessage = e instanceof Error ? e.message : String(e || '')
@@ -840,7 +886,7 @@ export function CatalogPage({
                         className="touch-btn min-h-10 px-2 rounded bg-slate-800 border border-slate-600 inline-flex items-center gap-1"
                         onClick={async () => {
                           try {
-                            await onPrintSticker(v.id, 1, '40x30')
+                            await onPrintSticker(v.id, 1, queueSize)
                             setToast(t('admin.catalog.stickerPrinted'))
                           } catch (e: unknown) {
                             const rawMessage = e instanceof Error ? e.message : String(e || '')
@@ -987,10 +1033,12 @@ export function CatalogPage({
               <select
                 className="touch-btn min-h-12 px-2 py-1 rounded bg-slate-950 border border-slate-700"
                 value={queueSize}
-                onChange={(e) => setQueueSize(e.target.value as '40x30' | '58mm')}
+                onChange={(e) => setQueueSize(e.target.value as LabelStickerSize)}
               >
-                <option value="40x30">40x30</option>
-                <option value="58mm">58mm</option>
+                <option value="40x50">40×50 (4×5 cm)</option>
+                <option value="50x40">50×40 (5×4 cm)</option>
+                <option value="40x30">40×30</option>
+                <option value="58mm">58 mm</option>
               </select>
             </div>
             <div className="max-h-72 overflow-auto kiosk-scrollbar rounded border border-slate-800">
@@ -1015,13 +1063,18 @@ export function CatalogPage({
                         </td>
                         <td className="p-2">{v.barcode}</td>
                         <td className="p-2 text-right">
-                          <input
-                            className="touch-btn min-h-12 w-28 px-3 py-2 rounded bg-slate-900 border border-slate-700 text-right text-base"
-                            value={String(copies)}
-                            onChange={(e) =>
-                              setQueueMap((p) => ({ ...p, [variantId]: Math.max(1, Number(e.target.value || '1')) }))
-                            }
-                          />
+                          <div className="w-28 ml-auto">
+                            <NumericNumpadField
+                              value={String(copies)}
+                              min={1}
+                              max={200}
+                              maxDigits={3}
+                              label={t('admin.catalog.copies')}
+                              onChange={(next) =>
+                                setQueueMap((p) => ({ ...p, [variantId]: Math.max(1, Number(next || '1')) }))
+                              }
+                            />
+                          </div>
                         </td>
                       </tr>
                     )
@@ -1134,15 +1187,25 @@ export function CatalogPage({
       )}
       {numpadOpen && (
         <div
-          className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center p-4"
+          className="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/60 p-4"
           role="dialog"
           aria-modal="true"
           onClick={() => setNumpadOpen(null)}
         >
           <div
-            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3"
+            className="my-auto w-full max-w-sm max-h-[min(90dvh,90svh)] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3 shadow-xl kiosk-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('common.valueBefore')}</div>
+              <div className="w-full min-h-12 px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-600 text-right text-lg font-semibold tabular-nums text-slate-100">
+                {matrixNumpadDisplay(numpadOpen.field, matrixNumpadBaseline)}
+              </div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('common.valueEditing')}</div>
+              <div className="w-full min-h-12 px-3 py-2.5 rounded-xl bg-slate-950 border border-emerald-700/50 ring-1 ring-emerald-500/30 text-right text-lg font-semibold tabular-nums text-emerald-100">
+                {matrixNumpadDisplay(numpadOpen.field, numpadValue())}
+              </div>
+            </div>
             <TouchNumpad
               className="rounded-xl border border-slate-800 bg-slate-950 p-3"
               value={numpadValue()}
@@ -1169,7 +1232,7 @@ export function CatalogPage({
       )}
       {bulkStickerPrompt && (
         <div
-          className="fixed inset-0 z-40 bg-black/70 flex items-center justify-center p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/70 p-4"
           onClick={() => {
             if (!bulkStickerBusy) setBulkStickerPrompt(null)
           }}
@@ -1177,7 +1240,7 @@ export function CatalogPage({
           <div
             role="dialog"
             aria-modal
-            className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4 shadow-xl"
+            className="my-auto w-full max-w-md max-h-[min(90dvh,90svh)] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4 shadow-xl kiosk-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-base font-semibold">
@@ -1185,15 +1248,14 @@ export function CatalogPage({
             </div>
             <label className="block text-sm text-slate-400">
               <span className="block mb-2">{t('admin.catalog.wizard.stickerAfterBulkCopies')}</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 tabular-nums"
+              <NumericNumpadField
                 value={bulkStickerPrompt.copiesStr}
-                onChange={(e) =>
-                  setBulkStickerPrompt((p) =>
-                    p ? { ...p, copiesStr: digitsOnly(e.target.value) || '1' } : p,
-                  )
+                min={1}
+                max={200}
+                maxDigits={3}
+                label={t('admin.catalog.wizard.stickerAfterBulkCopies')}
+                onChange={(next) =>
+                  setBulkStickerPrompt((p) => (p ? { ...p, copiesStr: digitsOnly(next) || '1' } : p))
                 }
               />
             </label>
@@ -1219,7 +1281,7 @@ export function CatalogPage({
                     try {
                       await onPrintStickerQueue(
                         bulkStickerPrompt.variantIds.map((variant_id) => ({ variant_id, copies: n })),
-                        '40x30',
+                        queueSize,
                       )
                       setBulkStickerPrompt(null)
                     } catch (e: unknown) {

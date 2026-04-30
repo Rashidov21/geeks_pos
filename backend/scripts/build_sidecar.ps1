@@ -85,7 +85,12 @@ $pyInstallerCommon = @(
   "--collect-submodules", "django",
   "--collect-submodules", "waitress",
   "--collect-submodules", "rest_framework",
-  "--collect-submodules", "corsheaders"
+  "--collect-submodules", "corsheaders",
+  # python-escpos (import name: escpos): full package + data (capabilities.json, etc.).
+  "--collect-all", "escpos",
+  "--hidden-import", "escpos",
+  "--hidden-import", "escpos.capabilities",
+  "--hidden-import", "yaml"
 ) + $collectProject + $hiddenImports + @(
   "run_waitress.py"
 )
@@ -139,4 +144,12 @@ $tripleExe = Join-Path $distDir "$Name-$rustcHost.exe"
 Copy-Item -LiteralPath $sidecarExe -Destination $tripleExe -Force
 Write-Host "Tauri externalBin uchun nusxa: $tripleExe" -ForegroundColor DarkGray
 
+# Ixtiyoriy: src-tauri/bin (hujjat / CI uchun; Tauri bundle hali ham backend/dist dan oladi).
+$binDir = Join-Path $root "src-tauri\bin"
+New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+Copy-Item -LiteralPath $sidecarExe -Destination (Join-Path $binDir "$Name.exe") -Force
+Copy-Item -LiteralPath $tripleExe -Destination (Join-Path $binDir (Split-Path -Leaf $tripleExe)) -Force
+Write-Host "src-tauri\bin ga nusxa ko'chirildi (Tauri externalBin: ../backend/dist)." -ForegroundColor DarkGray
+
 Write-Host "Sidecar build tayyor: $sidecarExe" -ForegroundColor Green
+Write-Host "Eslatma: PyInstaller --noconsole + Tauri spawn stdout/stderr log faylga yo'naltiriladi." -ForegroundColor DarkGray

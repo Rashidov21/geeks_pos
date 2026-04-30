@@ -13,6 +13,61 @@ def _tspl_literal(s: str, *, max_len: int) -> str:
     return out if out else "-"
 
 
+def _tspl_dimensions_mm(size_key: str) -> tuple[int, int]:
+    k = (size_key or "40x30").strip().lower()
+    if k == "58mm":
+        return 58, 40
+    if k == "40x50":
+        return 40, 50
+    if k == "50x40":
+        return 50, 40
+    if k == "40x30":
+        return 40, 30
+    return 40, 30
+
+
+def _tspl_layout(*, w_mm: int, h_mm: int) -> dict[str, int]:
+    """8 dots/mm. Tight vertical stack: brand → model → size/color → barcode (large) → price."""
+    h = h_mm * 8
+    x0 = 12 if w_mm >= 50 else 8
+    if h_mm <= 30:
+        return {
+            "x": x0,
+            "brand": 4,
+            "model": 20,
+            "sc": 40,
+            "bc_y": 56,
+            "bc_h": 52,
+            "nar": 2,
+            "wide": 3,
+            "price": min(h - 24, 170),
+        }
+    if h_mm <= 40:
+        return {
+            "x": x0,
+            "brand": 6,
+            "model": 26,
+            "sc": 52,
+            "bc_y": 74,
+            "bc_h": 68,
+            "nar": 2,
+            "wide": 3,
+            "price": h - 32,
+        }
+    # 50 mm tall (40×50)
+    return {
+        "x": x0,
+        "brand": 8,
+        "model": 38,
+        "sc": 68,
+        "bc_y": 98,
+        "bc_h": 110,
+        "nar": 2,
+        "wide": 4,
+        "price": h - 36,
+    }
+
+
 class TsplRenderer:
     def __init__(self, *, kind: str):
         self.kind = kind
@@ -31,28 +86,46 @@ class TsplRenderer:
 
     def render_label(self, *, label_payload: dict[str, Any], settings) -> bytes:
         variant = label_payload["variant"]
+        size_key = (label_payload.get("size") or "40x30").strip()
+        copies = max(1, min(200, int(label_payload.get("copies") or 1)))
+
         barcode = (variant.barcode or "").strip() or "0"
-        name = _tspl_literal((variant.product.name_uz or "").strip(), max_len=26)
+        cat = ""
+        c = getattr(variant.product, "category", None)
+        if c is not None:
+            cat = (getattr(c, "name_uz", None) or "").strip()
+        brand_src = (settings.brand_name or "").strip() or (cat or "")
+        brand = _tspl_literal(brand_src, max_len=28)
+        model = _tspl_literal((variant.product.name_uz or "").strip(), max_len=32)
         size_color = _tspl_literal(
             f"{variant.size.label_uz} / {variant.color.label_uz}".strip(),
-            max_len=30,
+            max_len=36,
         )
-        bc_text = _tspl_literal(barcode, max_len=22)
-        price = _tspl_literal(f"{self._money(variant.list_price)} UZS", max_len=20)
+        price = _tspl_literal(f"{self._money(variant.list_price)} UZS", max_len=22)
 
-        # Stickers are always 40×30 mm. Stack top→bottom: name, size/color, barcode,
-        # human-readable number (separate TEXT; BARCODE human_readable=0 avoids overlap),
-        # price near bottom. Dots assume ~8 dp/mm (320×240 for 40×30).
-        tspl = [
-            "SIZE 40 mm,30 mm",
+        w_mm, h_mm = _tspl_dimensions_mm(size_key)
+        lay = _tspl_layout(w_mm=w_mm, h_mm=h_mm)
+        x = lay["x"]
+
+        header = [
+            f"SIZE {w_mm} mm,{h_mm} mm",
             "GAP 2 mm,0 mm",
             "DIRECTION 1",
-            "CLS",
-            f'TEXT 8,6,"2",0,1,1,"{name}"',
-            f'TEXT 8,28,"2",0,1,1,"{size_color}"',
-            f'BARCODE 10,52,"128",32,0,0,2,2,"{barcode}"',
-            f'TEXT 8,90,"2",0,1,1,"{bc_text}"',
-            f'TEXT 8,208,"2",0,1,1,"{price}"',
-            "PRINT 1,1",
         ]
+        blocks: list[str] = []
+        for _ in range(copies):
+            blocks.extend(
+                [
+                    "CLS",
+                    f'TEXT {x},{lay["brand"]},"2",0,1,1,"{brand}"',
+                    f'TEXT {x},{lay["model"]},"2",0,1,1,"{model}"',
+                    f'TEXT {x},{lay["sc"]},"2",0,1,1,"{size_color}"',
+                    # CODE128, taller bars; human_readable=1 prints digits under barcode (no extra TEXT line)
+                    f'BARCODE {x},{lay["bc_y"]},"128",{lay["bc_h"]},1,0,{lay["nar"]},{lay["wide"]},"{barcode}"',
+                    f'TEXT {x},{lay["price"]},"2",0,1,1,"{price}"',
+                    "PRINT 1,1",
+                ]
+            )
+
+        tspl = header + blocks
         return ("\r\n".join(tspl) + "\r\n").encode("ascii", errors="ignore")

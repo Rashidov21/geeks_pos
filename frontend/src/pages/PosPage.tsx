@@ -1,11 +1,10 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Calculator, LogOut, ScanLine, Printer, LayoutGrid, Lock, Pause, Play, Trash2, Users } from 'lucide-react'
 import Decimal from 'decimal.js'
 import {
+  AppError,
   completeSale,
-  fetchReceiptEscpos,
-  fetchReceiptPlain,
   fetchHardwareConfig,
   fetchStoreSettings,
   fetchVariantByBarcode,
@@ -21,8 +20,9 @@ import {
 import { usePosStore, type PayMode, type SuspendedCart } from '../store/posStore'
 import { formatMoney } from '../utils/money'
 import { buildCompleteSaleFingerprintInput, hashSaleIdempotencyKey64 } from '../utils/saleFingerprint'
-import { dispatchReceipt } from '../utils/printingHub'
+import { printReceiptWithFallback } from '../utils/printingHub'
 import { TouchNumpad } from '../components/TouchNumpad'
+import { PinNumpadPanel } from '../components/PinNumpadPanel'
 import { ActionToast } from '../components/ActionToast'
 
 Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP })
@@ -159,6 +159,7 @@ export function PosPage({
   const [scannerMode, setScannerMode] = useState<'keyboard' | 'serial'>('keyboard')
   const [autoPrintOnSale, setAutoPrintOnSale] = useState(true)
   const [receiptPrinterName, setReceiptPrinterName] = useState('')
+  const [receiptPrinterPort, setReceiptPrinterPort] = useState('')
   const [afterScanFocus, setAfterScanFocus] = useState<'scan' | 'qty'>(() => {
     try {
       const v = localStorage.getItem(AFTER_SCAN_FOCUS_KEY)
@@ -169,8 +170,12 @@ export function PosPage({
   })
   const [numpadCtx, setNumpadCtx] = useState<NumpadCtx | null>(null)
   const [numpadBuf, setNumpadBuf] = useState('0')
+  /** Som string when payment/discount numpad was opened (for before / editing). */
+  const [amountNumpadBaseline, setAmountNumpadBaseline] = useState('0')
   const [selectedLine, setSelectedLine] = useState<null | { variantId: string; name: string; stockQty: number; listPrice: string }>(null)
   const [numpadValue, setNumpadValue] = useState('0')
+  /** list_price when line price modal was opened. */
+  const [priceEditBaseline, setPriceEditBaseline] = useState('0')
   const [priceBusy, setPriceBusy] = useState(false)
   const [productSearch, setProductSearch] = useState('')
   const [searchResults, setSearchResults] = useState<PosVariant[]>([])
@@ -180,6 +185,7 @@ export function PosPage({
   const [lockTimeoutMinutes, setLockTimeoutMinutes] = useState(5)
   const [unlockPin, setUnlockPin] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
+  const [unlockBusy, setUnlockBusy] = useState(false)
   const [meUser, setMeUser] = useState('')
   const [matrixRows, setMatrixRows] = useState<PosVariant[]>([])
   const [matrixBusy, setMatrixBusy] = useState(false)
@@ -322,6 +328,7 @@ export function PosPage({
         const fromStore = (store?.receipt_printer_name || '').trim()
         const fromHw = (cfg.receipt_printer_name || '').trim()
         setReceiptPrinterName(fromStore || fromHw)
+        setReceiptPrinterPort((store?.receipt_printer_port || cfg.receipt_printer_port || '').trim())
         setLockTimeoutMinutes(Math.max(1, Number(cfg.lock_timeout_minutes || 5)))
       } catch {
         setScannerPrefix('')
@@ -329,6 +336,7 @@ export function PosPage({
         setScannerMode('keyboard')
         setAutoPrintOnSale(true)
         setReceiptPrinterName((store?.receipt_printer_name || '').trim())
+        setReceiptPrinterPort((store?.receipt_printer_port || '').trim())
         setLockTimeoutMinutes(5)
       }
     })()
@@ -486,38 +494,25 @@ export function PosPage({
 
   async function tryPrint(saleId: string) {
     setPrintBanner(null)
-    const b64 = await fetchReceiptEscpos(saleId)
-    let ok = false
-    if (b64) {
-      try {
-        await dispatchReceipt(b64, { receipt_printer_name: receiptPrinterName || '' })
-        ok = true
-      } catch (e: unknown) {
-        const rawMessage = e instanceof Error ? e.message : String(e || '')
-        if (rawMessage.startsWith('Printer ulanmagan:')) {
-          setPrintBanner(rawMessage)
-        }
-        ok = false
+    try {
+      const result = await printReceiptWithFallback(saleId, {
+        receipt_printer_name: receiptPrinterName || '',
+        receipt_printer_port: receiptPrinterPort || '',
+      })
+      if (result.kind === 'escpos') {
+        showToast('ok', t('msg.printSentTo', { printer: result.printer }))
+      } else {
+        showToast('ok', t('msg.printSentPlain'))
       }
-    }
-    if (!ok) {
-      const plain = await fetchReceiptPlain(saleId)
-      if (plain) {
-        try {
-          const { invoke } = await import('@tauri-apps/api/tauri')
-          await invoke('print_plain', { text: plain })
-          ok = true
-        } catch {
-          try {
-            await navigator.clipboard.writeText(plain)
-            setPrintBanner(t('msg.printClipboard'))
-          } catch {
-            setPrintBanner(t('msg.printFailed'))
-          }
-        }
+    } catch (e: unknown) {
+      const rawMessage = e instanceof Error ? e.message : String(e || '')
+      if (rawMessage.startsWith('Printer ulanmagan:')) {
+        setPrintBanner(rawMessage)
+      } else {
+        setPrintBanner(t('msg.printFailed'))
       }
+      showToast('err', rawMessage || t('msg.printFailed'))
     }
-    if (ok) showToast('ok', t('msg.printSent'))
     safeRefocus()
   }
 
@@ -652,8 +647,11 @@ export function PosPage({
       if (autoPrintOnSale) void tryPrint(res.sale_id as string)
     } catch (e: unknown) {
       beepError()
-      const code = (e as Error & { code?: string }).code
-      const msg = t(`err.${code || 'UNKNOWN'}`, { defaultValue: t('msg.errorGeneric') })
+      const appErr = e instanceof AppError ? e : null
+      const code = appErr?.code || (e as Error & { code?: string }).code
+      const detail = appErr?.detail || (e as Error & { detail?: string }).detail || ''
+      const fallback = detail || (e instanceof Error ? e.message : '') || t('msg.errorGeneric')
+      const msg = t(`err.${code || 'UNKNOWN'}`, { defaultValue: fallback })
       if (code === 'INSUFFICIENT_STOCK') {
         setBanner(`${t('msg.stock')} ${msg}`)
       } else {
@@ -822,10 +820,14 @@ export function PosPage({
   function openAmountNumpad(ctx: NumpadCtx) {
     setNumpadCtx(ctx)
     if (ctx.kind === 'discount') {
-      setNumpadBuf(roundSom(parseSom(orderDiscount)).toString())
+      const buf = roundSom(parseSom(orderDiscount)).toString()
+      setNumpadBuf(buf)
+      setAmountNumpadBaseline(buf)
     } else {
       const row = paymentRows.find((r) => r.id === ctx.rowId)
-      setNumpadBuf(row ? roundSom(parseSom(row.amount)).toString() : '0')
+      const buf = row ? roundSom(parseSom(row.amount)).toString() : '0'
+      setNumpadBuf(buf)
+      setAmountNumpadBaseline(buf)
     }
   }
 
@@ -893,8 +895,8 @@ export function PosPage({
         </div>
       </header>
 
-      <section className="mx-4 mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-        <div className="flex items-center justify-between gap-2">
+      <section className="mx-4 mt-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 max-h-48 min-h-0 flex flex-col">
+        <div className="flex items-center justify-between gap-2 shrink-0">
           <div className="inline-flex items-center gap-2 text-sm text-slate-300">
             <Users className="h-4 w-4" />
             {t('pos.activeSessions', { defaultValue: 'Faol navbatlar' })}: {suspendedCarts.length}
@@ -914,7 +916,7 @@ export function PosPage({
           </button>
         </div>
         {suspendedCarts.length > 0 ? (
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          <div className="mt-3 flex gap-2 overflow-x-auto overflow-y-auto pb-1 min-h-0 max-h-[min(11rem,28vh)] kiosk-scrollbar">
             {suspendedCarts.map((session) => (
               <div
                 key={session.id}
@@ -984,9 +986,9 @@ export function PosPage({
         </div>
       )}
       {lowStockLines.length > 0 && (
-        <div className="mx-4 mt-2 px-3 py-2 rounded text-sm bg-amber-950/90 border border-amber-700 text-amber-50">
-          <div className="font-medium">{t('pos.lowStockWarning', { n: LOW_STOCK_THRESHOLD })}</div>
-          <ul className="mt-1 list-disc list-inside text-xs opacity-95">
+        <div className="mx-4 mt-2 px-3 py-2 rounded text-sm bg-amber-950/90 border border-amber-700 text-amber-50 max-h-[min(10rem,22vh)] min-h-0 flex flex-col">
+          <div className="font-medium shrink-0">{t('pos.lowStockWarning', { n: LOW_STOCK_THRESHOLD })}</div>
+          <ul className="mt-1 list-disc list-inside text-xs opacity-95 overflow-y-auto min-h-0 kiosk-scrollbar pr-1">
             {lowStockLines.map((l) => (
               <li key={l.variantId}>
                 {l.name} — {l.colorLabel} / {l.sizeLabel}:{' '}
@@ -1006,6 +1008,11 @@ export function PosPage({
             value={buffer}
             onChange={onScanChange}
             onKeyDown={onScanKeyDown}
+            inputMode="none"
+            enterKeyHint="done"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             className={`w-full text-lg px-3 py-3 rounded border bg-slate-900 outline-none ${
               scanFlash ? 'border-red-500 ring-2 ring-red-600' : 'border-slate-600'
             }`}
@@ -1113,6 +1120,7 @@ export function PosPage({
                     key={l.variantId}
                     className="border-t border-slate-800 cursor-pointer hover:bg-slate-900/60"
                     onClick={() => {
+                      setPriceEditBaseline(l.listPrice)
                       setNumpadValue(String(parseSom(l.listPrice)))
                       setSelectedLine({
                         variantId: l.variantId,
@@ -1307,7 +1315,7 @@ export function PosPage({
               />
               <input
                 type="date"
-                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm"
+                className="touch-btn w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-slate-100 [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-90 [&::-webkit-calendar-picker-indicator]:invert"
                 value={debtDueDate}
                 onChange={(e) => setDebtDueDate(e.target.value)}
               />
@@ -1344,12 +1352,21 @@ export function PosPage({
         </aside>
       </main>
       {numpadCtx && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 pt-10">
-          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
-            <h3 className="text-lg font-semibold mb-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/70 p-4">
+          <div className="my-auto w-full max-w-md max-h-[min(90dvh,90svh)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl kiosk-scrollbar">
+            <h3 className="text-lg font-semibold mb-3">
               {numpadCtx.kind === 'discount' ? t('pos.numpadDiscountTitle') : t('pos.numpadTitle')}
             </h3>
-            <div className="text-3xl font-bold mb-4 text-center">{formatMoney(numpadBuf)}</div>
+            <div className="space-y-2 mb-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('common.valueBefore')}</div>
+              <div className="w-full min-h-12 px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-600 text-right text-xl font-bold tabular-nums text-slate-100">
+                {formatMoney(amountNumpadBaseline)}
+              </div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('common.valueEditing')}</div>
+              <div className="w-full min-h-12 px-3 py-2.5 rounded-xl bg-slate-950 border border-emerald-700/50 ring-1 ring-emerald-500/30 text-right text-xl font-bold tabular-nums text-emerald-100">
+                {formatMoney(numpadBuf)}
+              </div>
+            </div>
             <TouchNumpad value={(numpadBuf || '0').replace(/\D/g, '') || '0'} onChange={setNumpadBuf} />
             <div className="flex gap-3 mt-5 justify-end">
               <button
@@ -1375,8 +1392,8 @@ export function PosPage({
       )}
 
       {selectedLine && (
-        <div className="fixed inset-0 z-30 bg-black/60 flex items-start justify-center p-4 pt-10">
-          <div className="w-full max-w-lg rounded border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/60 p-4">
+          <div className="my-auto w-full max-w-lg max-h-[min(90dvh,90svh)] overflow-y-auto rounded border border-slate-700 bg-slate-900 p-4 space-y-3 kiosk-scrollbar">
             <h3 className="text-lg font-semibold">{selectedLine.name}</h3>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="rounded bg-slate-950 border border-slate-700 p-2">
@@ -1388,10 +1405,18 @@ export function PosPage({
                 <div className="text-xl">{formatMoney(selectedLine.listPrice)}</div>
               </div>
             </div>
-            <div className="rounded-xl bg-slate-950 border border-slate-700 p-3">
-              <div className="text-sm text-slate-400 mb-2">{t('admin.catalog.salePrice')}</div>
-              <div className="text-3xl font-semibold mb-3">{formatMoney(numpadValue)}</div>
+            <div className="rounded-xl bg-slate-950 border border-slate-700 p-3 space-y-2">
+              <div className="text-sm text-slate-400">{t('admin.catalog.salePrice')}</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('common.valueBefore')}</div>
+              <div className="w-full min-h-12 px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-600 text-right text-xl font-semibold tabular-nums">
+                {formatMoney(priceEditBaseline)}
+              </div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('common.valueEditing')}</div>
+              <div className="w-full min-h-12 px-3 py-2.5 rounded-xl bg-slate-900 border border-emerald-700/50 ring-1 ring-emerald-500/25 text-right text-xl font-semibold tabular-nums text-emerald-100">
+                {formatMoney(numpadValue)}
+              </div>
               <TouchNumpad
+                className="mt-2"
                 value={(numpadValue || '0').replace(/\D/g, '') || '0'}
                 onChange={(v) => setNumpadValue(v)}
               />
@@ -1436,13 +1461,13 @@ export function PosPage({
       )}
       {stockMatrix && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-10"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/60 p-4"
           role="dialog"
           aria-modal
           aria-labelledby="stock-matrix-title"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-xl max-h-[85vh] flex flex-col">
-            <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="my-auto flex min-h-0 w-full max-w-lg max-h-[min(90dvh,90svh)] flex-col rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
+            <div className="mb-3 flex shrink-0 items-start justify-between gap-2">
               <div>
                 <h2 id="stock-matrix-title" className="text-lg font-semibold text-slate-100">
                   {t('pos.stockMatrixTitle')}
@@ -1461,9 +1486,9 @@ export function PosPage({
               </button>
             </div>
             {matrixBusy ? (
-              <p className="text-sm text-slate-400 py-6">{t('admin.common.loading')}</p>
+              <p className="shrink-0 py-6 text-sm text-slate-400">{t('admin.common.loading')}</p>
             ) : (
-              <div className="overflow-y-auto kiosk-scrollbar rounded-xl border border-slate-800">
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-800 kiosk-scrollbar">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-950 text-slate-400 sticky top-0">
                     <tr>
@@ -1530,34 +1555,35 @@ export function PosPage({
         </footer>
       )}
       {locked && (
-        <div className="fixed inset-0 z-[90] bg-black/90 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-950 p-5 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto overscroll-contain bg-black/90 p-4">
+          <div className="my-auto w-full max-w-sm max-h-[min(90dvh,90svh)] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-5 space-y-4 shadow-2xl kiosk-scrollbar">
             <div className="flex flex-col items-center text-center gap-2">
               <img src="/resized-logo.png" alt="logo" className="h-16 w-16 rounded-xl bg-white p-1 object-contain" />
               <h3 className="text-xl font-semibold">{t('header.lock', { defaultValue: 'Locked' })}</h3>
               <p className="text-slate-300 text-sm capitalize">{lockDateLabel}</p>
               <p className="text-3xl font-bold text-emerald-300 tracking-wide">{lockTimeLabel}</p>
             </div>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              className="touch-btn w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700"
-              value={unlockPin}
-              onChange={(e) => setUnlockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              placeholder={t('auth.pinPlaceholder', { defaultValue: '1234' })}
+            <PinNumpadPanel
+              pin={unlockPin}
+              setPin={setUnlockPin}
+              label={t('auth.pin', { defaultValue: 'PIN' })}
             />
             {unlockErr && <p className="text-sm text-red-400">{unlockErr}</p>}
             <button
               type="button"
               className="touch-btn w-full px-3 py-2 rounded-xl bg-emerald-700 border border-emerald-500 font-medium"
+              disabled={unlockBusy}
               onClick={async () => {
+                if (unlockBusy) return
+                setUnlockBusy(true)
                 try {
                   if (!meUser) throw new Error('INVALID_PIN')
                   await loginWithPin(meUser, unlockPin)
                   setLocked(false)
                 } catch {
                   setUnlockErr(t('err.INVALID_PIN'))
+                } finally {
+                  setUnlockBusy(false)
                 }
               }}
             >

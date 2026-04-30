@@ -1,14 +1,44 @@
-﻿"""
+"""
 Django settings for local MVP (SQLite, localhost API).
 """
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Load environment variables from local files (root/.env, backend/.env).
-load_dotenv(BASE_DIR.parent / ".env", override=False)
-load_dotenv(BASE_DIR / ".env", override=False)
+
+
+def _load_env_files() -> None:
+    """
+    Load .env from common runtime locations.
+
+    Why: in packaged (PyInstaller sidecar) runs, cwd/BASE_DIR can differ from repo layout,
+    so relying only on repo-root/backed/.env may miss license settings.
+    """
+    candidates: list[Path] = [
+        BASE_DIR.parent / ".env",  # repo root (dev)
+        BASE_DIR / ".env",  # backend/.env (dev)
+        Path.cwd() / ".env",  # runtime cwd
+        Path.cwd() / "backend" / ".env",  # runtime cwd with backend subdir
+    ]
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.extend(
+            [
+                exe_dir / ".env",  # sidecar рядом
+                exe_dir / "backend" / ".env",
+            ]
+        )
+    for p in candidates:
+        try:
+            load_dotenv(p, override=False)
+        except OSError:
+            continue
+
+
+_load_env_files()
 
 
 def _resolve_writable_app_home() -> Path:
@@ -55,6 +85,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework.authtoken",
     "corsheaders",
     "core.apps.CoreConfig",
     "accounts.apps.AccountsConfig",
@@ -74,7 +105,6 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -142,7 +172,7 @@ MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.TokenAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser", "rest_framework.parsers.MultiPartParser"],
@@ -167,9 +197,17 @@ CORS_ALLOWED_ORIGINS = [
     "https://tauri.localhost",
     "tauri://localhost",
 ]
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://localhost:\d+$",
+]
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = (*default_headers, "authorization")
 
 # License / Owner Dashboard (set in production)
+# Must be absolute, e.g. https://api.geeks.uz — not a path-only value like /api/v1/ (see licensing.remote_client).
+# POS uses (under this base): POST api/v1/verify-activation-key/, POST api/v1/activate/, GET api/v1/check-status/,
+# POST api/v1/sync-report/. Token + X-CLIENT-KEY on every call (see licensing.remote_client).
+# Packaged sidecar: run_waitress sets DJANGO_DEBUG=0 when frozen; Tauri also passes DJANGO_DEBUG=0 in release.
 LICENSE_API_BASE_URL = os.environ.get("LICENSE_API_BASE_URL", "").strip()
 LICENSE_AUTH_TOKEN = os.environ.get("LICENSE_AUTH_TOKEN", "").strip()
 LICENSE_CLIENT_API_KEY = os.environ.get("LICENSE_CLIENT_API_KEY", "").strip()
@@ -177,6 +215,14 @@ LICENSE_ENFORCEMENT = os.environ.get("LICENSE_ENFORCEMENT", "0" if DEBUG else "1
 LICENSE_OFFLINE_GRACE_HOURS = int(os.environ.get("LICENSE_OFFLINE_GRACE_HOURS", "72"))
 LICENSE_DEMO_DAYS = int(os.environ.get("LICENSE_DEMO_DAYS", "14"))
 INTERNAL_FLUSH_KEY = os.environ.get("INTERNAL_FLUSH_KEY", "").strip()
+BACKUP_UPLOAD_ENABLED = os.environ.get("BACKUP_UPLOAD_ENABLED", "0") == "1"
+BACKUP_UPLOAD_URL = os.environ.get("BACKUP_UPLOAD_URL", "").strip()
+BACKUP_AUTH_TOKEN = os.environ.get("BACKUP_AUTH_TOKEN", "").strip()
+BACKUP_CLIENT_KEY = os.environ.get("BACKUP_CLIENT_KEY", "").strip()
+try:
+    BACKUP_INTERVAL_HOURS = max(1, int(os.environ.get("BACKUP_INTERVAL_HOURS", "24")))
+except ValueError:
+    BACKUP_INTERVAL_HOURS = 24
 if DEBUG and not INTERNAL_FLUSH_KEY:
     INTERNAL_FLUSH_KEY = "dev-internal-flush-key"
 

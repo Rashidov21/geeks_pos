@@ -50,7 +50,10 @@ export function PrinterQuickPage() {
     try {
       const payload = await testReceiptPrintPayload()
       const b64 = payload.raw_base64 || payload.escpos_base64
-      await dispatchReceipt(b64, { receipt_printer_name: cfg?.receipt_printer_name || '' })
+      await dispatchReceipt(b64, {
+        receipt_printer_name: cfg?.receipt_printer_name || '',
+        receipt_printer_port: cfg?.receipt_printer_port || '',
+      })
       setToast({ kind: 'ok', msg: t('msg.printSent') })
     } catch (e: unknown) {
       const raw = e instanceof Error ? e.message : String(e || '')
@@ -97,6 +100,16 @@ export function PrinterQuickPage() {
           </select>
         </label>
         <label className="block text-sm text-slate-400">
+          {t('admin.settings.printerPortLabel', { defaultValue: 'Receipt port (e.g. USB001)' })}
+          <input
+            className="touch-btn mt-1 w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
+            value={cfg.receipt_printer_port || ''}
+            onChange={(e) => void save({ receipt_printer_port: e.target.value })}
+            placeholder="USB001"
+            disabled={busy}
+          />
+        </label>
+        <label className="block text-sm text-slate-400">
           {t('admin.settings.receiptPrinterType')}
           <select
             className="touch-btn mt-1 w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
@@ -109,6 +122,32 @@ export function PrinterQuickPage() {
             <option value="ESC_POS">ESC/POS</option>
             <option value="TSPL">TSPL</option>
           </select>
+        </label>
+        <label className="block text-sm text-slate-400">
+          {t('admin.settings.labelPrinterName')}
+          <select
+            className="touch-btn mt-1 w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
+            value={cfg.label_printer_name || ''}
+            onChange={(e) => void save({ label_printer_name: e.target.value })}
+            disabled={busy}
+          >
+            <option value="">{t('admin.settings.printerStatus.defaultLabel', { defaultValue: 'Default label printer' })}</option>
+            {printers.map((p) => (
+              <option key={`label-${p}`} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm text-slate-400">
+          {t('admin.settings.labelPrinterPortLabel', { defaultValue: 'Label port (e.g. USB002)' })}
+          <input
+            className="touch-btn mt-1 w-full min-h-12 px-3 rounded-xl bg-slate-950 border border-slate-700"
+            value={cfg.label_printer_port || ''}
+            onChange={(e) => void save({ label_printer_port: e.target.value })}
+            placeholder="USB002"
+            disabled={busy}
+          />
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <input

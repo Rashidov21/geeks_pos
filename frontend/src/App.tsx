@@ -27,8 +27,6 @@ import {
   fetchSizes,
   fetchStocktakeSession,
   listStocktakeSessions,
-  fetchReceiptEscpos,
-  fetchReceiptPlain,
   fetchStoreSettings,
   fetchVariants,
   logout,
@@ -37,6 +35,7 @@ import {
   sendZReport,
   sendWhatsAppReminder,
   backupNow,
+  runAutoBackup,
   receiveInventory,
   setStocktakeCount,
   updateIntegrationSettings,
@@ -58,6 +57,7 @@ import {
   type UserRole,
   type Variant,
   type BulkGridCell,
+  type LabelStickerSize,
 } from './api'
 import { AdminSidebar } from './components/AdminSidebar'
 import { AdminTopNavbar } from './components/AdminTopNavbar'
@@ -65,7 +65,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { ActivationPage } from './pages/ActivationPage'
 import { LoginPage } from './pages/LoginPage'
 import { PosPage } from './pages/PosPage'
-import { dispatchLabel, dispatchReceipt } from './utils/printingHub'
+import { dispatchLabel, printReceiptWithFallback } from './utils/printingHub'
 
 const DEFAULT_LICENSE_OK: LicenseStatus = {
   enforcement: false,
@@ -200,6 +200,16 @@ export default function App() {
     setLicenseStatus(null)
   }
 
+  useEffect(() => {
+    function onAuthExpired() {
+      setAuthed(false)
+      setRole(null)
+      setLicenseStatus(null)
+    }
+    window.addEventListener('geekspos-auth-expired', onAuthExpired)
+    return () => window.removeEventListener('geekspos-auth-expired', onAuthExpired)
+  }, [])
+
   async function logoutAndReset() {
     try {
       await logout()
@@ -315,6 +325,27 @@ export default function App() {
     }, 5000)
     return () => window.clearInterval(id)
   }, [authed, isManager, role, lastStockSyncAt])
+
+  useEffect(() => {
+    if (!authed) return
+    const tauriRuntime =
+      typeof window !== 'undefined' &&
+      typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
+    if (!tauriRuntime) return
+
+    const run = async () => {
+      try {
+        await runAutoBackup()
+      } catch {
+        // silent: backup status is persisted server-side and visible in settings panel
+      }
+    }
+    void run()
+    const id = window.setInterval(() => {
+      void run()
+    }, 30 * 60 * 1000)
+    return () => window.clearInterval(id)
+  }, [authed])
 
   if (booting) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
   if (authed && !role) return <div className="min-h-screen bg-slate-950 text-slate-100 p-6">{t('admin.common.loading')}</div>
@@ -468,16 +499,7 @@ export default function App() {
                   await refreshAdminData()
                 }}
                 onReprintSale={async (saleId) => {
-                  const b64 = await fetchReceiptEscpos(saleId)
-                  if (b64) {
-                    await dispatchReceipt(b64, settings)
-                    return
-                  }
-                  const plain = await fetchReceiptPlain(saleId)
-                  if (plain) {
-                    const { invoke } = await import('@tauri-apps/api/tauri')
-                    await invoke('print_plain', { text: plain })
-                  }
+                  await printReceiptWithFallback(saleId, settings)
                 }}
                 onCreateStocktake={async (note) => {
                   const s = await createStocktakeSession(note)
@@ -598,8 +620,11 @@ function AdminPanel(props: {
     transliterate_uz: boolean
     receipt_printer_name: string
     receipt_printer_type: 'ESC_POS' | 'TSPL'
+    receipt_printer_port?: string
     label_printer_name: string
     label_printer_type: 'ESC_POS' | 'TSPL'
+    label_printer_port?: string
+    receipt_lang?: string
     receipt_width: '58mm' | '80mm'
     auto_print_on_sale: boolean
     scanner_mode: 'keyboard' | 'serial'
@@ -627,10 +652,10 @@ function AdminPanel(props: {
   onSendZReport: () => Promise<{ ok: boolean; details?: string; channel_results?: unknown }>
   onFilterDashboard: (from?: string, to?: string, year?: string) => void
   onAdjustStockQuick: (variantId: string, qtyDelta: number, note: string) => Promise<void>
-  onPrintSticker: (variantId: string, copies: number, size: '40x30' | '58mm') => Promise<void>
+  onPrintSticker: (variantId: string, copies: number, size: LabelStickerSize) => Promise<void>
   onPrintStickerQueue: (
     items: Array<{ variant_id: string; copies: number }>,
-    size: '40x30' | '58mm',
+    size: LabelStickerSize,
   ) => Promise<void>
 }) {
   const location = useLocation()

@@ -1,4 +1,4 @@
-﻿from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,6 +11,16 @@ from sales.models import Sale
 from .models import StoreSettings
 from .receipt import receipt_plain_text, sale_to_receipt_dict
 from .services import PrinterFactory
+
+
+def _escpos_bundle_error_response(exc: BaseException):
+    return Response(
+        {
+            "code": "ESCPOS_BUNDLE_ERROR",
+            "detail": str(exc),
+        },
+        status=503,
+    )
 from .serializers import (
     HardwareConfigSerializer,
     LabelQueueSerializer,
@@ -111,7 +121,10 @@ class ReceiptEscposView(APIView):
             )
         dto = sale_to_receipt_dict(sale, lang=_request_lang(request))
         settings = StoreSettings.get_solo()
-        raw = PrinterFactory.render_receipt(receipt_dto=dto, settings=settings)
+        try:
+            raw = PrinterFactory.render_receipt(receipt_dto=dto, settings=settings)
+        except (FileNotFoundError, OSError) as exc:
+            return _escpos_bundle_error_response(exc)
         import base64
 
         return Response(
@@ -136,19 +149,22 @@ class LabelEscposView(APIView):
         ser.is_valid(raise_exception=True)
         settings = StoreSettings.get_solo()
         try:
-            v = ProductVariant.objects.select_related("product", "size", "color").get(
+            v = ProductVariant.objects.select_related("product__category", "product", "size", "color").get(
                 pk=ser.validated_data["variant_id"]
             )
         except ProductVariant.DoesNotExist:
             return Response({"code": "VARIANT_NOT_FOUND", "detail": "Variant not found."}, status=404)
-        payload = PrinterFactory.render_label(
-            label_payload={
-                "variant": v,
-                "size": ser.validated_data.get("size", "40x30"),
-                "copies": ser.validated_data.get("copies", 1),
-            },
-            settings=settings,
-        )
+        try:
+            payload = PrinterFactory.render_label(
+                label_payload={
+                    "variant": v,
+                    "size": ser.validated_data.get("size", "40x30"),
+                    "copies": ser.validated_data.get("copies", 1),
+                },
+                settings=settings,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            return _escpos_bundle_error_response(exc)
         return Response(
             {
                 "raw_base64": base64.b64encode(payload).decode("ascii"),
@@ -172,7 +188,7 @@ class LabelQueueEscposView(APIView):
         settings = StoreSettings.get_solo()
         out = []
         requested_ids = [str(item["variant_id"]) for item in ser.validated_data["items"]]
-        variants = ProductVariant.objects.select_related("product", "size", "color").filter(
+        variants = ProductVariant.objects.select_related("product__category", "product", "size", "color").filter(
             pk__in=requested_ids
         )
         by_id = {str(v.id): v for v in variants}
@@ -184,10 +200,13 @@ class LabelQueueEscposView(APIView):
             )
         for item in ser.validated_data["items"]:
             v = by_id[str(item["variant_id"])]
-            payload = PrinterFactory.render_label(
-                label_payload={"variant": v, "size": size, "copies": item["copies"]},
-                settings=settings,
-            )
+            try:
+                payload = PrinterFactory.render_label(
+                    label_payload={"variant": v, "size": size, "copies": item["copies"]},
+                    settings=settings,
+                )
+            except (FileNotFoundError, OSError) as exc:
+                return _escpos_bundle_error_response(exc)
             out.append(
                 {
                     "variant_id": str(v.id),
@@ -237,7 +256,10 @@ class TestReceiptPrintView(APIView):
             },
             "lines": [],
         }
-        raw = PrinterFactory.render_receipt(receipt_dto=dto, settings=settings)
+        try:
+            raw = PrinterFactory.render_receipt(receipt_dto=dto, settings=settings)
+        except (FileNotFoundError, OSError) as exc:
+            return _escpos_bundle_error_response(exc)
         encoded = base64.b64encode(raw).decode("ascii")
         return Response(
             {
@@ -259,14 +281,17 @@ class TestLabelPrintView(APIView):
         variant = SimpleNamespace(
             barcode="TEST123456",
             list_price="100000",
-            product=SimpleNamespace(name_uz="Demo"),
+            product=SimpleNamespace(name_uz="Demo", category=SimpleNamespace(name_uz="BrandCat")),
             size=SimpleNamespace(label_uz="40"),
             color=SimpleNamespace(label_uz="Qora"),
         )
-        raw = PrinterFactory.render_label(
-            label_payload={"variant": variant, "size": "40x30", "copies": 1},
-            settings=settings,
-        )
+        try:
+            raw = PrinterFactory.render_label(
+                label_payload={"variant": variant, "size": "40x30", "copies": 1},
+                settings=settings,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            return _escpos_bundle_error_response(exc)
         encoded = base64.b64encode(raw).decode("ascii")
         return Response(
             {

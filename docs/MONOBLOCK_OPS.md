@@ -1,6 +1,6 @@
 # POS monoblok — operatsion checklist (Windows / hardware)
 
-Bu hujjat dastur **tashqi** muhit muammolarini kamaytirish uchun qisqa ro‘yxat. Ilova logikasi uchun [`FIRST_RUN_ACCEPTANCE_CHECKLIST.md`](FIRST_RUN_ACCEPTANCE_CHECKLIST.md) bilan birga qo‘llang.
+Bu hujjat dastur **tashqi** muhit muammolarini kamaytirish uchun qisqa ro‘yxat. Ilova logikasi uchun [`FIRST_RUN_ACCEPTANCE_CHECKLIST.md`](FIRST_RUN_ACCEPTANCE_CHECKLIST.md) bilan birga qo‘llang. **Release yig‘ish / o‘rnatishdan keyin:** [`PRODUCTION_POST_INSTALL.md`](PRODUCTION_POST_INSTALL.md).
 
 ## Windows Defender va SmartScreen
 

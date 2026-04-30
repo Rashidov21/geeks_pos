@@ -1,18 +1,128 @@
 /** In Tauri/bundled mode default to loopback backend, in Vite dev keep same-origin proxy. */
 const RUNTIME_API_KEY = 'geeks_pos_runtime_api_base'
+const LAST_RUNTIME_API_KEY = 'geeks_pos_runtime_api_base_last_auth'
+const TOKEN_KEY = 'geeks_pos_auth_token'
+
+function shouldUseDevProxy(): boolean {
+  if (typeof window === 'undefined') return false
+  return (
+    isTauriRuntime() &&
+    (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
+    window.location.hostname === 'localhost'
+  )
+}
+
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
+}
+
+function readRuntimeApiBase(): string {
+  try {
+    return localStorage.getItem(RUNTIME_API_KEY)?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeRuntimeApiBase(base: string) {
+  try {
+    localStorage.setItem(RUNTIME_API_KEY, base)
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function readLastAuthApiBase(): string {
+  try {
+    return localStorage.getItem(LAST_RUNTIME_API_KEY)?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeLastAuthApiBase(base: string) {
+  try {
+    localStorage.setItem(LAST_RUNTIME_API_KEY, base)
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function readAccessToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY)?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeToken(token: string) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function clearTokens() {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function shouldAttachAuth(input: RequestInfo | URL): boolean {
+  const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+  return raw.includes('/api/')
+}
+
+const fetch: typeof globalThis.fetch = async (input, init) => {
+  const headers = new Headers(init?.headers || {})
+  if (shouldAttachAuth(input)) {
+    const token = readAccessToken()
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Token ${token}`)
+    }
+  }
+  const res = await globalThis.fetch(input, { ...init, headers })
+  if (res.status === 401 && shouldAttachAuth(input)) {
+    clearTokens()
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('geekspos-auth-expired'))
+    }
+  }
+  return res
+}
+
+async function resolveLatestRuntimeApiBase(): Promise<string> {
+  if (shouldUseDevProxy()) {
+    return ''
+  }
+  const cached = readRuntimeApiBase()
+  if (!isTauriRuntime()) return cached
+  try {
+    const { invoke } = await import('@tauri-apps/api/tauri')
+    const live = (await invoke<string>('get_backend_base_url')).trim()
+    if (live) {
+      writeRuntimeApiBase(live)
+      return live
+    }
+  } catch {
+    // fallback to cached runtime base
+  }
+  return cached
+}
 
 function resolveApiBase(): string {
-  try {
-    const runtime = localStorage.getItem(RUNTIME_API_KEY)?.trim()
-    if (runtime) return runtime
-  } catch {
-    // ignore
+  if (shouldUseDevProxy()) {
+    return ''
   }
+  const runtime = readRuntimeApiBase()
+  if (runtime) return runtime
   const configured = (import.meta.env.VITE_API_BASE as string | undefined)?.trim()
   if (configured) return configured
-  const tauriRuntime =
-    typeof window !== 'undefined' && typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== 'undefined'
-  if (tauriRuntime || import.meta.env.PROD) return 'http://127.0.0.1:8000'
+  if (isTauriRuntime() || import.meta.env.PROD) return 'http://127.0.0.1:8000'
   return ''
 }
 
@@ -56,6 +166,17 @@ async function logApiError(message: string): Promise<void> {
   }
 }
 
+async function resetSessionOnBaseChange(nextBase: string): Promise<void> {
+  if (!nextBase) return
+  const prevBase = readLastAuthApiBase()
+  if (!prevBase || prevBase === nextBase) {
+    writeLastAuthApiBase(nextBase)
+    return
+  }
+  clearTokens()
+  writeLastAuthApiBase(nextBase)
+}
+
 async function parseErrorResponse(r: Response, fallbackCode: string): Promise<AppError> {
   const j = (await r.json().catch(() => ({}))) as { code?: string; detail?: string }
   let code = j.code || fallbackCode
@@ -84,26 +205,26 @@ export type PosVariant = {
 }
 
 export async function fetchCsrf(): Promise<string> {
-  const r = await fetch(`${API}/api/auth/csrf/`, { credentials: 'include' })
-  const j = await r.json()
-  return j.csrfToken as string
+  const liveBase = await resolveLatestRuntimeApiBase()
+  if (liveBase) {
+    writeRuntimeApiBase(liveBase)
+  }
+  return ''
 }
 
 export async function login(username: string, password: string): Promise<void> {
-  const csrf = await fetchCsrf()
   const r = await fetch(`${API}/api/auth/login/`, {
     method: 'POST',
-    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      'X-CSRFToken': csrf,
     },
     body: JSON.stringify({ username, password }),
   })
   if (!r.ok) {
     throw await parseErrorResponse(r, 'INVALID_CREDENTIALS')
   }
-  await r.json().catch(() => ({}))
+  const j = (await r.json().catch(() => ({}))) as { token?: string }
+  writeToken((j.token || '').trim())
 }
 
 export type PinUser = { username: string; display_name: string; role: UserRole; pin_enabled: boolean }
@@ -116,15 +237,19 @@ export async function fetchPinUsers(): Promise<PinUser[]> {
 }
 
 export async function loginWithPin(username: string, pin: string): Promise<void> {
-  const csrf = await fetchCsrf()
+  const liveBase = await resolveLatestRuntimeApiBase()
+  if (liveBase) {
+    writeRuntimeApiBase(liveBase)
+    await resetSessionOnBaseChange(liveBase)
+  }
   const r = await fetch(`${API}/api/auth/pin-login/`, {
     method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, pin }),
   })
   if (!r.ok) throw await parseErrorResponse(r, 'INVALID_PIN')
-  await r.json().catch(() => ({}))
+  const j = (await r.json().catch(() => ({}))) as { token?: string }
+  writeToken((j.token || '').trim())
 }
 
 export async function setUserPin(username: string, pin: string, enabled = true): Promise<void> {
@@ -139,12 +264,11 @@ export async function setUserPin(username: string, pin: string, enabled = true):
 }
 
 export async function logout(): Promise<void> {
-  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   await fetch(`${API}/api/auth/logout/`, {
     method: 'POST',
-    credentials: 'include',
-    headers: { 'X-CSRFToken': csrf },
+    headers: { 'Content-Type': 'application/json' },
   })
+  clearTokens()
 }
 
 export async function fetchVariantByBarcode(code: string): Promise<PosVariant> {
@@ -819,10 +943,14 @@ export type StoreSettings = {
   address: string
   footer_note: string
   transliterate_uz: boolean
+  /** 'uz' | 'ru' | 'auto' (backend maps missing/invalid to 'uz' or 'ru'). */
+  receipt_lang?: string
   receipt_printer_name: string
   receipt_printer_type: 'ESC_POS' | 'TSPL'
+  receipt_printer_port?: string
   label_printer_name: string
   label_printer_type: 'ESC_POS' | 'TSPL'
+  label_printer_port?: string
   receipt_width: '58mm' | '80mm'
   auto_print_on_sale: boolean
   scanner_mode: 'keyboard' | 'serial'
@@ -836,8 +964,10 @@ export type HardwareConfig = Pick<
   StoreSettings,
   | 'receipt_printer_name'
   | 'receipt_printer_type'
+  | 'receipt_printer_port'
   | 'label_printer_name'
   | 'label_printer_type'
+  | 'label_printer_port'
   | 'receipt_width'
   | 'auto_print_on_sale'
   | 'scanner_mode'
@@ -956,6 +1086,9 @@ export async function testReceiptPrintPayload() {
   }>
 }
 
+/** Sticker / label stock size (mm). TSPL uses SIZE w,h; ESC/POS uses column width + barcode scale. */
+export type LabelStickerSize = '40x30' | '40x50' | '50x40' | '58mm'
+
 export async function testLabelPrintPayload() {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   const r = await fetch(`${API}/api/printing/test-label/`, {
@@ -969,7 +1102,7 @@ export async function testLabelPrintPayload() {
     escpos_base64: string
     printer_name: string
     printer_type: 'ESC_POS' | 'TSPL'
-    size: '40x30' | '58mm'
+    size: LabelStickerSize
   }>
 }
 
@@ -1056,6 +1189,28 @@ export async function backupNow() {
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new AppError(j.code || 'BACKUP_FAILED', j.detail)
   return j as { ok: boolean; backup_path: string }
+}
+
+export async function runAutoBackup(opts?: { force?: boolean }) {
+  const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
+  const qs = opts?.force ? '?force=1' : ''
+  const r = await fetch(`${API}/api/integrations/backup/auto-run/${qs}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-CSRFToken': csrf },
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new AppError(j.code || 'BACKUP_UPLOAD_FAILED', j.detail)
+  return j as {
+    status: 'disabled' | 'skipped' | 'uploaded' | 'updated'
+    reason?: string
+    next_at?: string
+    file_name?: string
+    size_bytes?: number
+    uploaded_at?: string
+    hardware_id?: string
+    forced?: boolean
+  }
 }
 
 export async function fetchIntegrationSettings(): Promise<IntegrationSettings> {
@@ -1159,7 +1314,7 @@ export async function adjustInventory(variantId: string, qtyDelta: number, note:
   return r.json() as Promise<{ variant_id: string; stock_qty: number }>
 }
 
-export async function fetchLabelEscpos(variantId: string, size: '40x30' | '58mm' = '40x30', copies = 1) {
+export async function fetchLabelEscpos(variantId: string, size: LabelStickerSize = '40x50', copies = 1) {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   const r = await fetch(`${API}/api/printing/labels/escpos/`, {
     method: 'POST',
@@ -1173,7 +1328,7 @@ export async function fetchLabelEscpos(variantId: string, size: '40x30' | '58mm'
 
 export async function fetchLabelQueueEscpos(
   items: Array<{ variant_id: string; copies: number }>,
-  size: '40x30' | '58mm' = '40x30',
+  size: LabelStickerSize = '40x50',
 ) {
   const csrf = (await fetchCsrf()) || getCookie('csrftoken') || ''
   const r = await fetch(`${API}/api/printing/labels/queue/escpos/`, {
@@ -1184,7 +1339,7 @@ export async function fetchLabelQueueEscpos(
   })
   if (!r.ok) throw await parseErrorResponse(r, 'LABEL_QUEUE_FAILED')
   return (await r.json()) as {
-    size: '40x30' | '58mm'
+    size: LabelStickerSize
     items: Array<{ variant_id: string; barcode: string | null; raw_base64: string; escpos_base64: string }>
   }
 }
