@@ -48,21 +48,26 @@ Database file: **`%APPDATA%\GeeksPOS\db.sqlite3`** (when `APPDATA` is set). Logs
 
 **Installer must not** ship `backend/db.sqlite3` from the repo; the build scripts fail if it exists.
 
-## Firewall (manual / post-install)
+## Firewall (post-install)
 
-Tauri’s default WiX/NSIS flow does **not** add a firewall rule. After install, run **elevated** once:
+Tauri **1.x** NSIS konfiguratsiyasida `installer_hooks` yo‘q, shuning uchun firewall qoidasi **o‘rnatish jarayonining o‘zida** avtomatik qo‘shilmaydi (buning uchun maxsus NSIS shablon yoki Tauri 2+ kerak).
 
-```powershell
-.\scripts\windows\add-firewall-rule.ps1
-```
+**O‘rnatgandan keyin** (bir marta, Administrator):
 
-Or pass the sidecar path explicitly:
+1. **Oson yo‘l:** o‘rnatilgan ilova papkasidagi `resources` ichida **`add-firewall-rule-admin.bat`** ni o‘ng tugma → **Run as administrator** (yoki oddiy ishga tushirib UAC ruxsatini bering). U yonidagi **`add-firewall-rule.ps1`** ni admin PowerShell bilan ishga tushiradi.
+2. **Yoki** repodan / Administrator PowerShell:
+   ```powershell
+   & "C:\Program Files\GEEKS POS\resources\add-firewall-rule.ps1"
+   ```
+   (yo‘l o‘rnatish joyingizga mos; skript o‘zi yon-atrofdagi `geeks_pos_backend*.exe` ni qidiradi.)
+3. **Aniq exe bo‘lsa:**
+   ```powershell
+   .\add-firewall-rule.ps1 -ProgramPath "C:\Program Files\GEEKS POS\geeks_pos_backend-x86_64-pc-windows-msvc.exe"
+   ```
 
-```powershell
-.\scripts\windows\add-firewall-rule.ps1 -ProgramPath "C:\Program Files\GEEKS POS\geeks_pos_backend-x86_64-pc-windows-msvc.exe"
-```
+`tauri build` paytida yuqoridagi ikki fayl **`resources`** orqali installer ichiga qo‘shiladi (`bundle.resources`).
 
-The backend only listens on **127.0.0.1**; a rule is mainly for strict corporate policies or future localhost edge cases.
+Backend asosan **127.0.0.1** da ishlaydi; firewall qoidasi qat’iy korporativ siyosatlar yoki kelajakdagi localhost cheklovlari uchun foydali.
 
 ---
 
@@ -73,6 +78,6 @@ The backend only listens on **127.0.0.1**; a rule is mainly for strict corporate
 3. **First launch**: confirm `%APPDATA%\GeeksPOS\` exists and `db.sqlite3` is created after migrations.
 4. **License**: set `LICENSE_API_BASE_URL`, `LICENSE_AUTH_TOKEN`, `LICENSE_CLIENT_API_KEY` in deployment docs / env as applicable (see backend `.env` examples).
 5. **Printers**: configure receipt/label printers in Settings; test print from admin.
-6. **Firewall** (optional): run `scripts/windows/add-firewall-rule.ps1` as Administrator.
+6. **Firewall** (ixtiyoriy): o‘rnatishdan keyin `resources\add-firewall-rule-admin.bat` (Run as administrator) yoki `resources\add-firewall-rule.ps1` ni admin PowerShelldan ishga tushiring.
 7. **Kiosk vs windowed**: use default windowed 1366×768, or set `GEEKS_POS_KIOSK=1` on the shortcut for fullscreen kiosk.
 8. **Backup**: schedule or document `python scripts/backup_sqlite.py` for `%APPDATA%\GeeksPOS\db.sqlite3`.

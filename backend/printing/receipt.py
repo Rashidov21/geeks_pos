@@ -244,6 +244,16 @@ def _load_logo_bw(settings: StoreSettings):
     return img
 
 
+def _escpos_release(printer: object) -> None:
+    """Close python-escpos printer handle (Dummy buffers or real USB/File backends)."""
+    close = getattr(printer, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def receipt_escpos_bytes(receipt: dict) -> bytes:
     from escpos.printer import Dummy
 
@@ -251,64 +261,67 @@ def receipt_escpos_bytes(receipt: dict) -> bytes:
 
     p = Dummy()
     try:
-        p.hw("INIT")
-        lang = _normalize_lang(receipt.get("store", {}).get("lang", "ru"))
-        if lang == "ru":
-            p.charcode("CP1251")
-        else:
-            p.charcode((settings.encoding or "cp866").upper())
-    except Exception:
         try:
-            p.charcode("CP1251")
+            p.hw("INIT")
+            lang = _normalize_lang(receipt.get("store", {}).get("lang", "ru"))
+            if lang == "ru":
+                p.charcode("CP1251")
+            else:
+                p.charcode((settings.encoding or "cp866").upper())
         except Exception:
             try:
-                p.charcode("CP866")
+                p.charcode("CP1251")
+            except Exception:
+                try:
+                    p.charcode("CP866")
+                except Exception:
+                    pass
+
+        logo = _load_logo_bw(settings)
+        if logo is not None:
+            try:
+                p.set(align="center")
+                p.image(logo)
+                p.text("\n")
             except Exception:
                 pass
 
-    logo = _load_logo_bw(settings)
-    if logo is not None:
-        try:
-            p.set(align="center")
-            p.image(logo)
-            p.text("\n")
-        except Exception:
-            pass
+        plain = receipt_plain_text(
+            {
+                **receipt,
+                "store": {
+                    **receipt.get("store", {}),
+                    "transliterate_uz": settings.transliterate_uz,
+                },
+            }
+        )
+        plain_lines = plain.split("\n")
+        brand_heading = plain_lines[0] if plain_lines else ""
+        plain_body = "\n".join(plain_lines[1:]) if len(plain_lines) > 1 else ""
 
-    plain = receipt_plain_text(
-        {
-            **receipt,
-            "store": {
-                **receipt.get("store", {}),
-                "transliterate_uz": settings.transliterate_uz,
-            },
-        }
-    )
-    plain_lines = plain.split("\n")
-    brand_heading = plain_lines[0] if plain_lines else ""
-    plain_body = "\n".join(plain_lines[1:]) if len(plain_lines) > 1 else ""
-
-    try:
-        p.set(align="center", bold=True, double_width=True, double_height=True)
-    except Exception:
         try:
-            p.set(align="center", bold=True)
+            p.set(align="center", bold=True, double_width=True, double_height=True)
         except Exception:
-            p.set(align="center")
-    p.text(f"{brand_heading}\n\n")
-    try:
-        p.set(align="left", bold=False, double_width=False, double_height=False)
-    except Exception:
+            try:
+                p.set(align="center", bold=True)
+            except Exception:
+                p.set(align="center")
+        p.text(f"{brand_heading}\n\n")
         try:
-            p.set(align="left", bold=False)
+            p.set(align="left", bold=False, double_width=False, double_height=False)
         except Exception:
-            p.set(align="left")
-    p.text(plain_body)
-    try:
-        p.cut(mode="PART")
-    except Exception:
-        p.text("\n\n")
-    return p.output
+            try:
+                p.set(align="left", bold=False)
+            except Exception:
+                p.set(align="left")
+        p.text(plain_body)
+        try:
+            p.cut(mode="PART")
+        except Exception:
+            p.text("\n\n")
+        return p.output
+    finally:
+        _escpos_release(p)
 
 
 def _label_escpos_cols(size: str) -> int:
@@ -335,60 +348,63 @@ def label_escpos_bytes(*, variant, size: str = "40x30", copies: int = 1) -> byte
     settings = StoreSettings.get_solo()
     p = Dummy()
     try:
-        p.hw("INIT")
-        p.charcode((settings.encoding or "cp866").upper())
-    except Exception:
         try:
-            p.charcode("CP866")
+            p.hw("INIT")
+            p.charcode((settings.encoding or "cp866").upper())
         except Exception:
-            pass
+            try:
+                p.charcode("CP866")
+            except Exception:
+                pass
 
-    cols = _label_escpos_cols(size)
-    cat = ""
-    c = getattr(variant.product, "category", None)
-    if c is not None:
-        cat = (getattr(c, "name_uz", None) or "").strip()
-    brand_src = (settings.brand_name or "").strip() or cat
-    brand = brand_src[:cols]
-    model = (variant.product.name_uz or "")[:cols]
-    size_color = f"{variant.size.label_uz} {variant.color.label_uz}"[:cols]
-    price = _format_amount(variant.list_price)
-    bc_h = _label_escpos_barcode_height(size)
-    bc_w = 3
-    for _ in range(max(1, int(copies))):
-        p.set(align="center", width=1, height=1)
-        p.text(f"{brand}\n")
-        p.set(align="center", width=2, height=2)
-        p.text(f"{model}\n")
-        p.set(align="center", width=1, height=1)
-        p.text(f"{size_color}\n")
-        p.set(align="center")
-        # Avoid python-escpos profile warning on Dummy() printers where media.width.pixel is unset.
+        cols = _label_escpos_cols(size)
+        cat = ""
+        c = getattr(variant.product, "category", None)
+        if c is not None:
+            cat = (getattr(c, "name_uz", None) or "").strip()
+        brand_src = (settings.brand_name or "").strip() or cat
+        brand = brand_src[:cols]
+        model = (variant.product.name_uz or "")[:cols]
+        size_color = f"{variant.size.label_uz} {variant.color.label_uz}"[:cols]
+        price = _format_amount(variant.list_price)
+        bc_h = _label_escpos_barcode_height(size)
+        bc_w = 3
+        for _ in range(max(1, int(copies))):
+            p.set(align="center", width=1, height=1)
+            p.text(f"{brand}\n")
+            p.set(align="center", width=2, height=2)
+            p.text(f"{model}\n")
+            p.set(align="center", width=1, height=1)
+            p.text(f"{size_color}\n")
+            p.set(align="center")
+            # Avoid python-escpos profile warning on Dummy() printers where media.width.pixel is unset.
+            try:
+                p.barcode(
+                    variant.barcode or "",
+                    "CODE128",
+                    height=bc_h,
+                    width=bc_w,
+                    pos="BELOW",
+                    check=False,
+                    align_ct=False,
+                )
+            except Exception:
+                p.barcode(
+                    variant.barcode or "",
+                    "CODE39",
+                    height=bc_h,
+                    width=bc_w,
+                    pos="BELOW",
+                    check=False,
+                    align_ct=False,
+                )
+            p.text("\n")
+            p.set(align="center", width=2, height=2)
+            p.text(f"{price}\n")
         try:
-            p.barcode(
-                variant.barcode or "",
-                "CODE128",
-                height=bc_h,
-                width=bc_w,
-                pos="BELOW",
-                check=False,
-                align_ct=False,
-            )
+            p.cut(mode="PART")
         except Exception:
-            p.barcode(
-                variant.barcode or "",
-                "CODE39",
-                height=bc_h,
-                width=bc_w,
-                pos="BELOW",
-                check=False,
-                align_ct=False,
-            )
-        p.text("\n")
-        p.set(align="center", width=2, height=2)
-        p.text(f"{price}\n")
-    try:
-        p.cut(mode="PART")
-    except Exception:
-        p.text("\n\n")
-    return p.output
+            p.text("\n\n")
+        return p.output
+    finally:
+        _escpos_release(p)

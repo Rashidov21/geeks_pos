@@ -16,7 +16,28 @@ Param(
 
 $ErrorActionPreference = "Stop"
 
+function Find-SidecarWalkingUpFromScript {
+  $dir = $PSScriptRoot
+  $names = @(
+    "geeks_pos_backend-x86_64-pc-windows-msvc.exe",
+    "geeks_pos_backend.exe"
+  )
+  for ($i = 0; $i -lt 6 -and $dir; $i++) {
+    foreach ($n in $names) {
+      $p = Join-Path $dir $n
+      if (Test-Path -LiteralPath $p) { return $p }
+    }
+    $parent = Split-Path -Parent $dir
+    if (-not $parent -or $parent -eq $dir) { break }
+    $dir = $parent
+  }
+  return $null
+}
+
 function Find-DefaultSidecar {
+  $near = Find-SidecarWalkingUpFromScript
+  if ($near) { return $near }
+
   $roots = @(
     "${env:ProgramFiles}\GEEKS POS",
     "${env:ProgramFiles(x86)}\GEEKS POS",

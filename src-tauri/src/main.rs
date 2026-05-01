@@ -32,6 +32,10 @@ use windows_sys::Win32::System::Power::{
     SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
 };
 
+/// Serialize RAW jobs to the Windows spooler (reduces USB "port busy" / driver races when switching printers).
+#[cfg(windows)]
+static RAW_PRINT_MUTEX: Mutex<()> = Mutex::new(());
+
 struct BackendState {
     child: Mutex<Option<Child>>,
     port: Mutex<u16>,
@@ -866,8 +870,13 @@ fn print_raw(payload: String, printer_name: Option<String>) -> Result<String, St
 
     #[cfg(windows)]
     {
+        let _guard = RAW_PRINT_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let target = printer_name.as_deref().map(str::trim).filter(|s| !s.is_empty());
         raw_print_to(target, &bytes, "Geeks POS RAW")?;
+        // Brief pause so the USB driver can release the endpoint before the next RAW job (e.g. receipt → label).
+        thread::sleep(Duration::from_millis(50));
         let label = target.unwrap_or("(default Windows printer)");
         return Ok(format!("Printed to {label}"));
     }

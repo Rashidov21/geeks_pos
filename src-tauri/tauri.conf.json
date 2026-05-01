@@ -51,7 +51,10 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": [
+        "../scripts/windows/add-firewall-rule.ps1",
+        "../scripts/windows/add-firewall-rule-admin.bat"
+      ],
       "shortDescription": "",
       "targets": "all",
       "windows": {
