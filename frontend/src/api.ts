@@ -852,6 +852,9 @@ export type DashboardSummary = {
     sales_count: number
     sales_amount: string
     today_sales_amount: string
+    today_cash_total?: string
+    today_card_total?: string
+    today_debt_total?: string
     void_count: number
     avg_check: string
     gross_profit: string

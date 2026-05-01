@@ -1,4 +1,4 @@
-{
+﻿{
   "app.title": "Geeks POS",
   "common.valueBefore": "Было",
   "common.valueEditing": "Сейчас вводите",
@@ -151,6 +151,9 @@
   "admin.dashboard.openDebts": "Открытые долги",
   "admin.dashboard.totalDebt": "Общий долг",
   "admin.dashboard.todaySales": "Продажи за сегодня",
+  "admin.dashboard.todayCash": "Наличные за сегодня",
+  "admin.dashboard.todayCard": "Карта за сегодня",
+  "admin.dashboard.todayDebt": "Долг/рассрочка за сегодня",
   "admin.dashboard.salesCount": "Количество продаж",
   "admin.dashboard.salesAmount": "Сумма продаж",
   "admin.dashboard.topCashiers": "Топ кассиров",

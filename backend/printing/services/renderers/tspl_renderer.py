@@ -33,14 +33,15 @@ def _tspl_layout(*, w_mm: int, h_mm: int) -> dict[str, int]:
     if h_mm <= 30:
         return {
             "x": x0,
-            "brand": 4,
-            "model": 20,
-            "sc": 40,
-            "bc_y": 56,
-            "bc_h": 52,
+            # 40x30 is short; keep all blocks compact to avoid big blank gap.
+            "brand": 2,
+            "model": 16,
+            "sc": 32,
+            "bc_y": 46,
+            "bc_h": 44,
             "nar": 2,
-            "wide": 3,
-            "price": min(h - 24, 170),
+            "wide": 2,
+            "price": min(h - 34, 134),
         }
     if h_mm <= 40:
         return {

@@ -76,6 +76,27 @@ export function DashboardPage({
         </div>
         <div className="rounded border border-slate-700 bg-slate-900 p-4">
           <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <BadgeDollarSign className="h-4 w-4" />
+            {t('admin.dashboard.todayCash')}
+          </div>
+          <div className="text-2xl mt-1">{formatMoney(totals?.today_cash_total)}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            {t('admin.dashboard.todayCard')}
+          </div>
+          <div className="text-2xl mt-1">{formatMoney(totals?.today_card_total)}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
+            <WalletCards className="h-4 w-4" />
+            {t('admin.dashboard.todayDebt')}
+          </div>
+          <div className="text-2xl mt-1">{formatMoney(totals?.today_debt_total)}</div>
+        </div>
+        <div className="rounded border border-slate-700 bg-slate-900 p-4">
+          <div className="text-sm text-slate-400 inline-flex items-center gap-2">
             <WalletCards className="h-4 w-4" />
             {t('admin.dashboard.totalDebt')}
           </div>

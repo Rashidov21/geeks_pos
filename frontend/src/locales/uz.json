@@ -1,4 +1,4 @@
-{
+﻿{
   "app.title": "Geeks POS",
   "common.valueBefore": "Oldingi qiymat",
   "common.valueEditing": "Kiritilmoqda",
@@ -151,6 +151,9 @@
   "admin.dashboard.openDebts": "Ochiq qarzlar",
   "admin.dashboard.totalDebt": "Jami qarz",
   "admin.dashboard.todaySales": "Bugungi sotuv",
+  "admin.dashboard.todayCash": "Bugungi naqd",
+  "admin.dashboard.todayCard": "Bugungi karta",
+  "admin.dashboard.todayDebt": "Bugungi qarz/nasiya",
   "admin.dashboard.salesCount": "Savdo soni",
   "admin.dashboard.salesAmount": "Savdo summasi",
   "admin.dashboard.topCashiers": "Top kassirlar",

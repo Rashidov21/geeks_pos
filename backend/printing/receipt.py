@@ -1,4 +1,4 @@
-import re
+﻿import re
 from decimal import Decimal, ROUND_HALF_UP
 
 from .models import StoreSettings
@@ -85,6 +85,39 @@ def _strip_cjk(text: str) -> str:
     return re.sub(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", "", text or "").strip()
 
 
+def _strip_control(text: str) -> str:
+    # Keep printable text only (plus common whitespace separators).
+    return "".join(ch for ch in (text or "") if ch == "\n" or ch == "\t" or ord(ch) >= 32)
+
+
+def _wrap_text(text: str, width: int) -> list[str]:
+    clean = _strip_control(_strip_cjk(text or "")).strip()
+    if not clean:
+        return []
+    words = clean.split()
+    if not words:
+        return []
+    out: list[str] = []
+    line = ""
+    for w in words:
+        if len(w) > width:
+            if line:
+                out.append(line)
+                line = ""
+            for i in range(0, len(w), width):
+                out.append(w[i : i + width])
+            continue
+        candidate = w if not line else f"{line} {w}"
+        if len(candidate) <= width:
+            line = candidate
+        else:
+            out.append(line)
+            line = w
+    if line:
+        out.append(line)
+    return out
+
+
 def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
     settings = StoreSettings.get_solo()
     lines_out = []
@@ -134,7 +167,7 @@ def sale_to_receipt_dict(sale, *, lang: str = "uz") -> dict:
 
 
 def _normalize_text(text: str, translit: bool) -> str:
-    text = _strip_cjk(text or "")
+    text = _strip_control(_strip_cjk(text or ""))
     if translit:
         text = transliterate_uz(text)
     return text
@@ -150,12 +183,14 @@ def receipt_plain_text(receipt: dict) -> str:
         return _normalize_text(v, translit)
 
     buf = []
-    buf.append(t(store.get("brand_name", "GEEKS POS")))
+    width = 42 if store.get("receipt_width") == "80mm" else 34
+    brand = t(store.get("brand_name", "GEEKS POS"))
+    buf.append(brand)
     if store.get("address"):
-        buf.append(t(store["address"]))
+        for row in _wrap_text(f"Адрес: {t(store['address'])}", width):
+            buf.append(row)
     if store.get("phone"):
         buf.append(f"{labels['tel']}: {t(store['phone'])}")
-    width = 42 if store.get("receipt_width") == "80mm" else 32
     buf.append(_line_80mm(labels["sale"], str(receipt.get("public_sale_no") or receipt["sale_id"][:8]), width=width))
     buf.append(_line_80mm(labels["time"], receipt["completed_at"][:19], width=width))
     buf.append(_line_80mm(labels["cashier"], t(receipt["cashier"]), width=width))
@@ -163,7 +198,11 @@ def receipt_plain_text(receipt: dict) -> str:
 
     for ln in receipt["lines"]:
         title = t(f"{ln['name']} {ln['color']} {ln['size']}")
-        buf.append(title[:width])
+        wrapped = _wrap_text(title, width)
+        if wrapped:
+            buf.extend(wrapped)
+        else:
+            buf.append(title[:width])
         buf.append(_line_80mm(f"{ln['qty']} x {ln['unit']}", ln["total"], width=width))
 
     buf.append("-" * width)
@@ -194,10 +233,11 @@ def _load_logo_bw(settings: StoreSettings):
         return None
 
     img = img.convert("L")
-    threshold = 180
+    threshold = 200
     img = img.point(lambda x: 255 if x > threshold else 0, mode="1")
 
-    max_width = 512
+    # Keep logo compact for 58mm rolls to avoid dark smearing.
+    max_width = 420
     if img.width > max_width:
         ratio = max_width / float(img.width)
         img = img.resize((max_width, int(img.height * ratio)))
@@ -212,12 +252,19 @@ def receipt_escpos_bytes(receipt: dict) -> bytes:
     p = Dummy()
     try:
         p.hw("INIT")
-        p.charcode((settings.encoding or "cp866").upper())
+        lang = _normalize_lang(receipt.get("store", {}).get("lang", "ru"))
+        if lang == "ru":
+            p.charcode("CP1251")
+        else:
+            p.charcode((settings.encoding or "cp866").upper())
     except Exception:
         try:
-            p.charcode("CP866")
+            p.charcode("CP1251")
         except Exception:
-            pass
+            try:
+                p.charcode("CP866")
+            except Exception:
+                pass
 
     logo = _load_logo_bw(settings)
     if logo is not None:

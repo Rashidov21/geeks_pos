@@ -40,10 +40,16 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
     gross_profit = q_money(completed.aggregate(total=Sum(profit_expr))["total"])
 
     today = timezone.localdate()
-    today_sales_amount = q_money(
-        Sale.objects.filter(status=Sale.Status.COMPLETED, completed_at__date=today).aggregate(total=Sum("grand_total"))[
-            "total"
-        ]
+    today_completed = Sale.objects.filter(status=Sale.Status.COMPLETED, completed_at__date=today)
+    today_sales_amount = q_money(today_completed.aggregate(total=Sum("grand_total"))["total"])
+    today_cash_total = q_money(
+        Payment.objects.filter(sale__in=today_completed, method=Payment.Method.CASH).aggregate(total=Sum("amount"))["total"]
+    )
+    today_card_total = q_money(
+        Payment.objects.filter(sale__in=today_completed, method=Payment.Method.CARD).aggregate(total=Sum("amount"))["total"]
+    )
+    today_debt_total = q_money(
+        Payment.objects.filter(sale__in=today_completed, method=Payment.Method.DEBT).aggregate(total=Sum("amount"))["total"]
     )
     avg_check = q_money((sales_amount / sales_count) if sales_count else 0)
     void_count = voided.count()
@@ -146,6 +152,9 @@ def sales_metrics(*, from_date: str | None = None, to_date: str | None = None):
         "sales_count": sales_count,
         "sales_amount": sales_amount,
         "today_sales_amount": today_sales_amount,
+        "today_cash_total": today_cash_total,
+        "today_card_total": today_card_total,
+        "today_debt_total": today_debt_total,
         "void_count": void_count,
         "avg_check": avg_check,
         "gross_profit": gross_profit,
